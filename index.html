@@ -9,6 +9,7 @@
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta name="theme-color" content="#4f46e5">
     <title>Copy-Paste App</title>
+    <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='15' y='25' width='70' height='65' rx='8' fill='%234f46e5'/><rect x='25' y='35' width='50' height='45' rx='4' fill='%23818cf8'/><rect x='30' y='10' width='40' height='25' rx='6' fill='%23a855f7'/><rect x='38' y='5' width='24' height='12' rx='4' fill='%23c084fc'/><line x1='35' y1='50' x2='65' y2='50' stroke='white' stroke-width='4' stroke-linecap='round'/><line x1='35' y1='62' x2='55' y2='62' stroke='white' stroke-width='4' stroke-linecap='round'/></svg>">
     <link rel="manifest" href="manifest.json">
     <style>
         * {
@@ -817,6 +818,38 @@
         .new-tag-input button:hover {
             transform: translateY(-2px);
         }
+
+        /* Footer */
+        .footer {
+            text-align: center;
+            padding: 20px;
+            margin-top: 30px;
+            color: rgba(255, 255, 255, 0.6);
+            font-size: 0.9rem;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+        }
+
+        .footer a {
+            color: #a855f7;
+            text-decoration: none;
+            font-weight: 600;
+            transition: all 0.3s ease;
+        }
+
+        .footer a:hover {
+            color: #c084fc;
+            text-decoration: underline;
+        }
+
+        .footer .heart {
+            color: #ef4444;
+            animation: heartbeat 1.5s ease-in-out infinite;
+        }
+
+        @keyframes heartbeat {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.2); }
+        }
     </style>
 </head>
 <body>
@@ -871,6 +904,11 @@
                 <p>No items yet. Add your first snippet above!</p>
             </div>
         </div>
+
+        <!-- Footer -->
+        <footer class="footer">
+            Made with <span class="heart">❤️</span> by <a href="https://sdet-karan.netlify.app/" target="_blank" rel="noopener noreferrer">Karan</a>
+        </footer>
     </div>
 
     <!-- Edit Modal -->
