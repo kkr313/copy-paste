@@ -1,0 +1,15 @@
+[build]
+  publish = "."
+
+# Redirect all requests to index.html for SPA behavior (optional)
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200
+  conditions = {Role = ["admin"]}
+
+# Handle 404
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

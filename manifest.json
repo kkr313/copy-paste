@@ -1,0 +1,25 @@
+{
+  "name": "Copy-Paste App",
+  "short_name": "CopyPaste",
+  "description": "Quick access to your frequently used text snippets with copy functionality",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#7b2ff7",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect fill='%237b2ff7' width='512' height='512' rx='100'/%3E%3Cpath fill='white' d='M352 128h-64V96c0-17.7-14.3-32-32-32H160c-17.7 0-32 14.3-32 32v192c0 17.7 14.3 32 32 32h64v32c0 17.7 14.3 32 32 32h96c17.7 0 32-14.3 32-32V160c0-17.7-14.3-32-32-32zM160 288V96h96v32h-32c-17.7 0-32 14.3-32 32v128h-32zm192 64H256V160h96v192z'/%3E%3C/svg%3E",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    },
+    {
+      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect fill='%237b2ff7' width='192' height='192' rx='40'/%3E%3Cpath fill='white' d='M132 48h-24V36c0-6.6-5.4-12-12-12H60c-6.6 0-12 5.4-12 12v72c0 6.6 5.4 12 12 12h24v12c0 6.6 5.4 12 12 12h36c6.6 0 12-5.4 12-12V60c0-6.6-5.4-12-12-12zM60 108V36h36v12H84c-6.6 0-12 5.4-12 12v48H60zm72 24H96V60h36v72z'/%3E%3C/svg%3E",
+      "sizes": "192x192",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
+    }
+  ],
+  "categories": ["productivity", "utilities"]
+}
