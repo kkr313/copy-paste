@@ -2,22 +2,23 @@
   "name": "Copy-Paste App",
   "short_name": "CopyPaste",
   "description": "Quick access to your frequently used text snippets with copy functionality",
-  "start_url": "/",
+  "start_url": "./index.html",
+  "scope": "./",
   "display": "standalone",
   "background_color": "#1a1a2e",
   "theme_color": "#7b2ff7",
   "orientation": "portrait-primary",
   "icons": [
     {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 512 512'%3E%3Crect fill='%237b2ff7' width='512' height='512' rx='100'/%3E%3Cpath fill='white' d='M352 128h-64V96c0-17.7-14.3-32-32-32H160c-17.7 0-32 14.3-32 32v192c0 17.7 14.3 32 32 32h64v32c0 17.7 14.3 32 32 32h96c17.7 0 32-14.3 32-32V160c0-17.7-14.3-32-32-32zM160 288V96h96v32h-32c-17.7 0-32 14.3-32 32v128h-32zm192 64H256V160h96v192z'/%3E%3C/svg%3E",
-      "sizes": "512x512",
-      "type": "image/svg+xml",
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAMAAAADACAMAAABlApw1AAAAb1BMVEUAAACfWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfehnzm9AAAAJHRSTlMAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiPJzk8mAAAA/klEQVR42u3VWQ6CQBRF0YdKi+KA8zzP+1+jJhoT4wfQpXTur+pXdacSAAAAAAAAAAAAAAAAAIBvqQ/a0+Mu3tT9yz7vXMr5lF8u7a/tbPKv/HBpf8Pk2v6a+qX9tc1r+2tal/Y3NC7tr65f2t/QuLS/qnZpf3Xt0v6q6qX91dVL+6uql/ZXVS7tr65c2l9dvbS/snJpf03l0v7qyqX9NZVL+2sql/bXlC/tr61c2l9bvrS/tnRpf23p0v7a0qX9tYVL++sKl/bX5S/tr8tf2l+Xu7S/Pndpf33u0v763KX99dlL++uzl/bXZS7trz/8CgAAAAAAAAAAAAAAAAD/8QTvdRJJT+wdGwAAAABJRU5ErkJggg==",
+      "sizes": "192x192",
+      "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 192 192'%3E%3Crect fill='%237b2ff7' width='192' height='192' rx='40'/%3E%3Cpath fill='white' d='M132 48h-24V36c0-6.6-5.4-12-12-12H60c-6.6 0-12 5.4-12 12v72c0 6.6 5.4 12 12 12h24v12c0 6.6 5.4 12 12 12h36c6.6 0 12-5.4 12-12V60c0-6.6-5.4-12-12-12zM60 108V36h36v12H84c-6.6 0-12 5.4-12 12v48H60zm72 24H96V60h36v72z'/%3E%3C/svg%3E",
-      "sizes": "192x192",
-      "type": "image/svg+xml",
+      "src": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAgAAAAIACAMAAADDpiTIAAAAb1BMVEUAAACfWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfefWfehnzm9AAAAJHRSTlMAAQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyAhIiPJzk8mAAACJklEQVR42u3dwW6CQBSG0T+lQhXB+qjV2vd/xm5MuuqCJN6ZxHPW7O7LzAQAAAAAAAAAAAAAAAAAAPie8qI5Ph+Tw+lV+Z9NfvfnfGl/deHS/urCpf1VhUv7qwuX9lcXLu2vzl/aX5O/tL8mf2l/Tf7S/prspf21+Uv7a7OX9tdmL+2vzV7aX5u9tL82e2l/bebS/rrMpf11mUv76zKX9tdlLu2vy1zaX5e5tL8uc2l/ffbS/vrspf312Uv767OX9tdnL+2vz17aX5+7tL8+d2l/fe7S/vrcpf31uUv763OX9tfnLu2vz13aX5+7tL8+d2l/Q+7S/obcpf0NuUv7G3KX9jfkLu1vyF3a35C5tL8hc2l/Q+bS/obMpf0NmUv7GzKX9jdkLu1vyFza35i5tL8xc2l/Y+bS/sbMpf2NmUv7GzOX9jdmLu1vzFza35i5tL8xc2l/Y+bS/sbMpf2NmUv7mzKX9jdlLu1vylza35S5tL8pc2l/U+bS/qbMpf1NmUv7mzKX9jdlLu1vylza35S5tL8pc2l/c+bS/ubMpf3NmUv7mzOX9jdnLu1vzlza35y5tL85c2l/c+bS/ubMpf3NmUv7mzOX9rdkLu1vyVza35K5tL8lc2l/S+bS/pbMpf0tmUv7WzKX9rdkLu1vyVza35K5tL8lc2l/a+bS/tbMpf2t/y8AAAAAAAAAAAAAAAAAAAAAAAAA8D/eAXSLE2A3ck5DAAAAAElFTkSuQmCC",
+      "sizes": "512x512",
+      "type": "image/png",
       "purpose": "maskable"
     }
   ],

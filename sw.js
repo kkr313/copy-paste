@@ -1,8 +1,8 @@
-const CACHE_NAME = 'copy-paste-app-v3';
+const CACHE_NAME = 'copy-paste-app-v4';
 const urlsToCache = [
-  '/',
-  '/index.html',
-  '/manifest.json'
+  './',
+  './index.html',
+  './manifest.json'
 ];
 
 // Install Service Worker
