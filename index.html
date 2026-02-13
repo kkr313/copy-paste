@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
-    <meta http-equiv="X-Frame-Options" content="DENY">
+
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta name="theme-color" content="#4f46e5">
     <title>Copy-Paste App</title>
@@ -1174,7 +1174,7 @@
             
             if (filteredItems.length === 0) {
                 empty.style.display = 'block';
-                empty.querySelector('p').textContent = activeTag ? 'No items with this tag.' : 'No items yet. Add your first snippet above!';
+                empty.querySelector('p').textContent = activeFilterTag && activeFilterTag !== '__all__' ? 'No items with this tag.' : 'No items yet. Add your first snippet above!';
                 return;
             }
             
@@ -1602,8 +1602,8 @@
             saveTags();
             
             // Reset active tag if deleted
-            if (activeTag === tagName) {
-                activeTag = null;
+            if (activeFilterTag === tagName) {
+                activeFilterTag = '__all__';
             }
             
             populateTagDropdowns();
