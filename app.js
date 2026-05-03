@@ -1353,7 +1353,13 @@ function startCameraScanner() {
     status.textContent = 'Starting camera...';
 
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-        status.textContent = 'Camera not supported. Use Upload instead.';
+        status.textContent = 'Camera not supported. Use Upload or Paste Link tab.';
+        return;
+    }
+
+    const useBarcodeAPI = 'BarcodeDetector' in window;
+    if (!useBarcodeAPI) {
+        status.textContent = 'Live scan not supported on this browser. Use Upload or Paste Link tab.';
         return;
     }
 
@@ -1364,43 +1370,26 @@ function startCameraScanner() {
             video.play();
             status.textContent = 'Point camera at a QR code...';
 
-            const useBarcodeAPI = 'BarcodeDetector' in window;
-            const detector = useBarcodeAPI ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
-            const scanCanvas = document.createElement('canvas');
-            const scanCtx = scanCanvas.getContext('2d');
+            const detector = new BarcodeDetector({ formats: ['qr_code'] });
 
             scannerInterval = setInterval(async () => {
                 if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
 
                 try {
-                    if (detector) {
-                        const barcodes = await detector.detect(video);
-                        if (barcodes.length > 0) {
-                            stopCameraScanner();
-                            closeQRScanner();
-                            processScannedQR(barcodes[0].rawValue);
-                            return;
-                        }
-                    }
-                } catch(e) {}
-
-                // Fallback to manual decoder
-                if (!detector) {
-                    scanCanvas.width = video.videoWidth;
-                    scanCanvas.height = video.videoHeight;
-                    scanCtx.drawImage(video, 0, 0);
-                    const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
-                    const result = decodeQRFromImage(imageData);
-                    if (result) {
+                    const barcodes = await detector.detect(video);
+                    if (barcodes.length > 0) {
                         stopCameraScanner();
                         closeQRScanner();
-                        processScannedQR(result);
+                        processScannedQR(barcodes[0].rawValue);
+                        return;
                     }
+                } catch(e) {
+                    status.textContent = 'Scanning... hold steady.';
                 }
-            }, 400);
+            }, 500);
         })
         .catch(err => {
-            status.textContent = 'Camera access denied. Use Upload instead.';
+            status.textContent = 'Camera access denied. Use Upload or Paste Link tab.';
         });
 }
 
