@@ -1,4 +1,4 @@
-const CACHE_NAME = 'copy-paste-app-v5';
+const CACHE_NAME = 'copy-paste-app-v6';
 const urlsToCache = [
   './',
   './index.html',
