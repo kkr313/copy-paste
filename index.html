@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self' https://fonts.gstatic.com; connect-src 'self';">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' https://fonts.gstatic.com; connect-src 'self'; media-src 'self' blob:;">
     <meta http-equiv="X-Content-Type-Options" content="nosniff">
     <meta name="referrer" content="strict-origin-when-cross-origin">
     <meta name="theme-color" content="#0f0f23">
@@ -24,6 +24,8 @@
             <button onclick="openExportModal()">📥 Export</button>
             <button onclick="document.getElementById('importFile').click()">📤 Import</button>
             <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+            <button onclick="openQRScanner()">📷 Scan QR</button>
+            <input type="file" id="qrFileInput" accept="image/*" style="display:none" onchange="handleQRUpload(event)">
         </div>
 
         <div class="input-card">
@@ -167,6 +169,46 @@
     </div>
 
     <div id="toast" class="toast"></div>
+
+    <!-- QR Scanner Modal -->
+    <div id="qrScannerModal" class="modal-overlay">
+        <div class="modal" style="max-width: 420px;">
+            <div class="modal-header">
+                <h2>📷 Scan QR Code</h2>
+                <button class="modal-close" onclick="closeQRScanner()">&times;</button>
+            </div>
+            <div class="modal-body" style="text-align:center;">
+                <div class="scanner-tabs">
+                    <button class="scanner-tab active" id="cameraTabBtn" onclick="switchScannerTab('camera')">📷 Camera</button>
+                    <button class="scanner-tab" id="uploadTabBtn" onclick="switchScannerTab('upload')">📁 Upload</button>
+                    <button class="scanner-tab" id="pasteTabBtn" onclick="switchScannerTab('paste')">📋 Paste Link</button>
+                </div>
+                <div id="cameraScanView" class="scanner-view">
+                    <div class="scanner-video-wrap">
+                        <video id="qrVideo" autoplay playsinline></video>
+                        <div class="scanner-crosshair"></div>
+                    </div>
+                    <p id="scannerStatus" style="color: var(--text-secondary); font-size:0.8rem; margin-top:10px;">Point camera at a QR code...</p>
+                </div>
+                <div id="uploadScanView" class="scanner-view" style="display:none;">
+                    <div class="upload-drop-zone" onclick="document.getElementById('qrFileInput').click()">
+                        <div style="font-size: 2.5rem; margin-bottom: 8px;">🖼️</div>
+                        <p style="color: var(--text-secondary); font-size: 0.85rem;">Click to select QR image</p>
+                    </div>
+                </div>
+                <div id="pasteScanView" class="scanner-view" style="display:none;">
+                    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 12px;">Paste the share link you received:</p>
+                    <div class="share-link-row">
+                        <input type="text" id="pasteShareLink" class="input-field" placeholder="Paste share link here...">
+                        <button class="btn btn-copy" onclick="importFromPastedLink()">📥 Import</button>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeQRScanner()">Close</button>
+            </div>
+        </div>
+    </div>
 
     <script src="app.js"></script>
 </body>

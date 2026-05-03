@@ -618,7 +618,7 @@ function showToast(msg, type) {
 
 // Close modals on escape
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal(); closeExportModal(); closeShareModal(); }
+    if (e.key === 'Escape') { closeModal(); closeExportModal(); closeShareModal(); closeQRScanner(); }
 });
 
 // Close modal on backdrop click
@@ -1248,6 +1248,520 @@ function handleSharedLink() {
 document.getElementById('shareModal').addEventListener('click', e => {
     if (e.target.classList.contains('modal-overlay')) closeShareModal();
 });
+
+document.getElementById('qrScannerModal').addEventListener('click', e => {
+    if (e.target.classList.contains('modal-overlay')) closeQRScanner();
+});
+
+// ========== QR Scanner ==========
+let scannerStream = null;
+let scannerInterval = null;
+
+function openQRScanner() {
+    document.getElementById('qrScannerModal').classList.add('show');
+    switchScannerTab('camera');
+}
+
+function closeQRScanner() {
+    document.getElementById('qrScannerModal').classList.remove('show');
+    stopCameraScanner();
+}
+
+function switchScannerTab(tab) {
+    const cameraView = document.getElementById('cameraScanView');
+    const uploadView = document.getElementById('uploadScanView');
+    const pasteView = document.getElementById('pasteScanView');
+    const cameraBtn = document.getElementById('cameraTabBtn');
+    const uploadBtn = document.getElementById('uploadTabBtn');
+    const pasteBtn = document.getElementById('pasteTabBtn');
+
+    cameraView.style.display = 'none';
+    uploadView.style.display = 'none';
+    pasteView.style.display = 'none';
+    cameraBtn.classList.remove('active');
+    uploadBtn.classList.remove('active');
+    pasteBtn.classList.remove('active');
+    stopCameraScanner();
+
+    if (tab === 'camera') {
+        cameraView.style.display = '';
+        cameraBtn.classList.add('active');
+        startCameraScanner();
+    } else if (tab === 'upload') {
+        uploadView.style.display = '';
+        uploadBtn.classList.add('active');
+    } else {
+        pasteView.style.display = '';
+        pasteBtn.classList.add('active');
+    }
+}
+
+function importFromPastedLink() {
+    const input = document.getElementById('pasteShareLink');
+    const link = input.value.trim();
+    if (!link) {
+        showToast('Please paste a share link!', 'error');
+        return;
+    }
+    closeQRScanner();
+    processScannedQR(link);
+    input.value = '';
+}
+
+function startCameraScanner() {
+    const video = document.getElementById('qrVideo');
+    const status = document.getElementById('scannerStatus');
+    status.textContent = 'Starting camera...';
+
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+        status.textContent = 'Camera not supported. Use Upload instead.';
+        return;
+    }
+
+    navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+        .then(stream => {
+            scannerStream = stream;
+            video.srcObject = stream;
+            video.play();
+            status.textContent = 'Point camera at a QR code...';
+
+            const useBarcodeAPI = 'BarcodeDetector' in window;
+            const detector = useBarcodeAPI ? new BarcodeDetector({ formats: ['qr_code'] }) : null;
+            const scanCanvas = document.createElement('canvas');
+            const scanCtx = scanCanvas.getContext('2d');
+
+            scannerInterval = setInterval(async () => {
+                if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+
+                try {
+                    if (detector) {
+                        const barcodes = await detector.detect(video);
+                        if (barcodes.length > 0) {
+                            stopCameraScanner();
+                            closeQRScanner();
+                            processScannedQR(barcodes[0].rawValue);
+                            return;
+                        }
+                    }
+                } catch(e) {}
+
+                // Fallback to manual decoder
+                if (!detector) {
+                    scanCanvas.width = video.videoWidth;
+                    scanCanvas.height = video.videoHeight;
+                    scanCtx.drawImage(video, 0, 0);
+                    const imageData = scanCtx.getImageData(0, 0, scanCanvas.width, scanCanvas.height);
+                    const result = decodeQRFromImage(imageData);
+                    if (result) {
+                        stopCameraScanner();
+                        closeQRScanner();
+                        processScannedQR(result);
+                    }
+                }
+            }, 400);
+        })
+        .catch(err => {
+            status.textContent = 'Camera access denied. Use Upload instead.';
+        });
+}
+
+function stopCameraScanner() {
+    if (scannerInterval) {
+        clearInterval(scannerInterval);
+        scannerInterval = null;
+    }
+    if (scannerStream) {
+        scannerStream.getTracks().forEach(t => t.stop());
+        scannerStream = null;
+    }
+    const video = document.getElementById('qrVideo');
+    if (video) video.srcObject = null;
+}
+
+// ========== QR Scanner (Upload Image) ==========
+async function handleQRUpload(e) {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';
+
+    // Method 1: BarcodeDetector + createImageBitmap (most reliable)
+    if ('BarcodeDetector' in window) {
+        try {
+            const bitmap = await createImageBitmap(file);
+            const detector = new BarcodeDetector({ formats: ['qr_code'] });
+            const barcodes = await detector.detect(bitmap);
+            if (barcodes.length > 0) {
+                closeQRScanner();
+                processScannedQR(barcodes[0].rawValue);
+                return;
+            }
+        } catch(err) {}
+    }
+
+    // Method 2: Canvas-based manual decoder as fallback
+    const img = new Image();
+    img.onload = function() {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+
+        const result = decodeQRFromImage(imageData);
+        if (result) {
+            closeQRScanner();
+            processScannedQR(result);
+        } else {
+            showToast('Could not read QR. Try pasting the share link in your browser instead.', 'error');
+        }
+    };
+    img.onerror = () => showToast('Could not load image!', 'error');
+    img.src = URL.createObjectURL(file);
+}
+
+function processScannedQR(url) {
+    // Extract the share hash from the URL
+    const hashIdx = url.indexOf('#share=');
+    if (hashIdx === -1) {
+        showToast('QR does not contain a valid share link!', 'error');
+        return;
+    }
+    
+    try {
+        const encoded = url.substring(hashIdx + 7);
+        const json = decodeURIComponent(escape(atob(encoded)));
+        const shared = JSON.parse(json);
+        
+        if (!shared.label || !shared.content) {
+            showToast('Invalid share data in QR!', 'error');
+            return;
+        }
+        
+        const exists = items.some(i => i.content === shared.content && i.label === shared.label);
+        if (exists) {
+            showToast('This snippet already exists!', 'warning');
+            return;
+        }
+        
+        if (shared.tag && !tags.includes(shared.tag)) {
+            tags.push(shared.tag);
+            if (!selectedTags.includes(shared.tag)) {
+                selectedTags.push(shared.tag);
+                saveSelectedTags();
+            }
+            saveTags();
+            populateTagDropdowns();
+        }
+        
+        if (confirm(`Import snippet "${shared.label}"?`)) {
+            items.unshift({
+                id: Date.now().toString(),
+                label: shared.label,
+                content: shared.content,
+                tag: shared.tag || null
+            });
+            save();
+            render();
+            showToast('Snippet imported from QR!');
+        }
+    } catch (err) {
+        showToast('Could not decode QR data!', 'error');
+    }
+}
+
+// Lightweight QR decoder from image data
+function decodeQRFromImage(imageData) {
+    const { data, width, height } = imageData;
+
+    // Convert to grayscale binary matrix
+    const gray = new Uint8Array(width * height);
+    for (let i = 0; i < width * height; i++) {
+        const idx = i * 4;
+        gray[i] = data[idx] * 0.299 + data[idx+1] * 0.587 + data[idx+2] * 0.114;
+    }
+
+    // Adaptive threshold (block-based)
+    const binary = new Uint8Array(width * height);
+    const blockSize = Math.max(15, Math.floor(Math.min(width, height) / 20) | 1);
+    const half = blockSize >> 1;
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            let sum = 0, count = 0;
+            for (let dy = -half; dy <= half; dy++) {
+                for (let dx = -half; dx <= half; dx++) {
+                    const ny = y + dy, nx = x + dx;
+                    if (ny >= 0 && ny < height && nx >= 0 && nx < width) {
+                        sum += gray[ny * width + nx];
+                        count++;
+                    }
+                }
+            }
+            binary[y * width + x] = gray[y * width + x] < (sum / count - 10) ? 1 : 0;
+        }
+    }
+
+    // Find finder patterns (3 squares with 1:1:3:1:1 ratio)
+    const finders = findFinderPatterns(binary, width, height);
+    if (finders.length < 3) return null;
+
+    // Sort finders: top-left, top-right, bottom-left
+    finders.sort((a, b) => (a.y + a.x) - (b.y + b.x));
+    const topLeft = finders[0];
+    let topRight, bottomLeft;
+    
+    if (finders.length >= 3) {
+        const others = finders.slice(1);
+        others.sort((a, b) => a.y - b.y);
+        if (others[0].x > others[1].x) {
+            topRight = others[0];
+            bottomLeft = others[1];
+        } else {
+            topRight = others[0].y < others[1].y ? others[0] : others[1];
+            bottomLeft = others[0].y < others[1].y ? others[1] : others[0];
+        }
+        // Re-determine: topRight has larger x, bottomLeft has larger y
+        if (topRight.y > bottomLeft.y) {
+            [topRight, bottomLeft] = [bottomLeft, topRight];
+        }
+        if (topRight.x < topLeft.x) {
+            [topRight, bottomLeft] = [bottomLeft, topRight];
+        }
+    }
+
+    // Estimate module size
+    const dist = Math.sqrt((topRight.x - topLeft.x) ** 2 + (topRight.y - topLeft.y) ** 2);
+    const moduleSize = dist / (topRight.moduleCount || (dist / (topLeft.size / 7)));
+    const estModules = Math.round(dist / moduleSize) + 7;
+    const version = Math.round((estModules - 17) / 4);
+    if (version < 1 || version > 20) return null;
+    const size = 17 + version * 4;
+    const cellSize = dist / (size - 7);
+
+    // Sample the grid
+    const grid = [];
+    // Calculate transform from finder positions
+    const startX = topLeft.x - 3.5 * cellSize;
+    const startY = topLeft.y - 3.5 * cellSize;
+    const angleX = Math.atan2(topRight.y - topLeft.y, topRight.x - topLeft.x);
+    const cosA = Math.cos(angleX), sinA = Math.sin(angleX);
+
+    for (let r = 0; r < size; r++) {
+        grid[r] = [];
+        for (let c = 0; c < size; c++) {
+            const px = startX + (c + 0.5) * cellSize * cosA - (r + 0.5) * cellSize * sinA;
+            const py = startY + (c + 0.5) * cellSize * sinA + (r + 0.5) * cellSize * cosA;
+            const ix = Math.round(px), iy = Math.round(py);
+            if (ix >= 0 && ix < width && iy >= 0 && iy < height) {
+                grid[r][c] = binary[iy * width + ix];
+            } else {
+                grid[r][c] = 0;
+            }
+        }
+    }
+
+    // Read format info
+    let formatBits = 0;
+    for (let i = 0; i < 6; i++) formatBits = (formatBits << 1) | grid[8][i];
+    formatBits = (formatBits << 1) | grid[8][7];
+    formatBits = (formatBits << 1) | grid[8][8];
+    formatBits = (formatBits << 1) | grid[7][8];
+    for (let i = 5; i >= 0; i--) formatBits = (formatBits << 1) | grid[i][8];
+
+    formatBits ^= 0x5412;
+    const maskPattern = formatBits & 7;
+
+    // Unmask
+    const isFunction = buildFunctionPattern(size, version);
+    for (let r = 0; r < size; r++) {
+        for (let c = 0; c < size; c++) {
+            if (isFunction[r][c]) continue;
+            let invert = false;
+            switch (maskPattern) {
+                case 0: invert = (r + c) % 2 === 0; break;
+                case 1: invert = r % 2 === 0; break;
+                case 2: invert = c % 3 === 0; break;
+                case 3: invert = (r + c) % 3 === 0; break;
+                case 4: invert = (Math.floor(r/2) + Math.floor(c/3)) % 2 === 0; break;
+                case 5: invert = (r*c)%2 + (r*c)%3 === 0; break;
+                case 6: invert = ((r*c)%2 + (r*c)%3) % 2 === 0; break;
+                case 7: invert = ((r+c)%2 + (r*c)%3) % 2 === 0; break;
+            }
+            if (invert) grid[r][c] ^= 1;
+        }
+    }
+
+    // Read data bits
+    const dataBits = [];
+    let goingUp = true;
+    for (let col = size - 1; col >= 1; col -= 2) {
+        if (col === 6) col = 5;
+        for (let cnt = 0; cnt < size; cnt++) {
+            const row = goingUp ? size - 1 - cnt : cnt;
+            for (let dx = 0; dx <= 1; dx++) {
+                const c = col - dx;
+                if (!isFunction[row][c]) {
+                    dataBits.push(grid[row][c]);
+                }
+            }
+        }
+        goingUp = !goingUp;
+    }
+
+    // Parse: mode(4) + count + data
+    let pos = 0;
+    const mode = (dataBits[0] << 3) | (dataBits[1] << 2) | (dataBits[2] << 1) | dataBits[3];
+    pos = 4;
+    if (mode !== 4) return null; // Only byte mode supported
+
+    const countBits = version <= 9 ? 8 : 16;
+    let charCount = 0;
+    for (let i = 0; i < countBits; i++) {
+        charCount = (charCount << 1) | dataBits[pos++];
+    }
+
+    const bytes = [];
+    for (let i = 0; i < charCount; i++) {
+        let byte = 0;
+        for (let b = 0; b < 8; b++) {
+            byte = (byte << 1) | (dataBits[pos++] || 0);
+        }
+        bytes.push(byte);
+    }
+
+    return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+function findFinderPatterns(binary, width, height) {
+    const candidates = [];
+    // Scan horizontal lines for 1:1:3:1:1 dark:light:dark:light:dark pattern
+    for (let y = 0; y < height; y += 2) {
+        let counts = [0,0,0,0,0];
+        let state = 0;
+        for (let x = 0; x < width; x++) {
+            const pixel = binary[y * width + x];
+            if (pixel === 1) { // dark
+                if (state === 1 || state === 3) { state++; counts[state] = 1; }
+                else counts[state]++;
+            } else { // light
+                if (state === 0 || state === 2) { state++; counts[state] = 1; }
+                else if (state === 4) {
+                    // Check ratio 1:1:3:1:1
+                    if (isFinderRatio(counts)) {
+                        const totalWidth = counts.reduce((a,b) => a+b);
+                        const cx = x - totalWidth / 2;
+                        const moduleSize = totalWidth / 7;
+                        // Verify vertical
+                        if (checkVertical(binary, width, height, Math.round(cx), y, moduleSize)) {
+                            candidates.push({ x: Math.round(cx), y, size: totalWidth, moduleCount: 7 });
+                        }
+                    }
+                    counts = [counts[2], counts[3], counts[4], 1, 0];
+                    state = 3;
+                } else {
+                    counts[state]++;
+                }
+            }
+        }
+    }
+
+    // Deduplicate nearby candidates
+    const merged = [];
+    for (const c of candidates) {
+        let found = false;
+        for (const m of merged) {
+            if (Math.abs(m.x - c.x) < c.size/2 && Math.abs(m.y - c.y) < c.size/2) {
+                m.x = (m.x + c.x) / 2;
+                m.y = (m.y + c.y) / 2;
+                found = true;
+                break;
+            }
+        }
+        if (!found) merged.push({...c});
+    }
+    return merged.slice(0, 3);
+}
+
+function isFinderRatio(counts) {
+    const total = counts.reduce((a,b) => a+b);
+    if (total < 7) return false;
+    const module = total / 7;
+    const threshold = module * 0.7;
+    return Math.abs(counts[0] - module) < threshold &&
+           Math.abs(counts[1] - module) < threshold &&
+           Math.abs(counts[2] - module * 3) < threshold * 3 &&
+           Math.abs(counts[3] - module) < threshold &&
+           Math.abs(counts[4] - module) < threshold;
+}
+
+function checkVertical(binary, width, height, cx, cy, moduleSize) {
+    const maxRange = Math.round(moduleSize * 5);
+    let darkCount = 0;
+    for (let dy = -maxRange; dy <= maxRange; dy++) {
+        const y = cy + dy;
+        if (y < 0 || y >= height) continue;
+        if (binary[y * width + cx] === 1) darkCount++;
+    }
+    return darkCount > maxRange * 0.3;
+}
+
+function buildFunctionPattern(size, version) {
+    const isFunc = Array.from({length: size}, () => new Uint8Array(size));
+
+    // Finders + separators
+    for (let i = 0; i < 8; i++) {
+        for (let j = 0; j < 8; j++) {
+            isFunc[i][j] = 1;
+            isFunc[i][size - 1 - j] = 1;
+            isFunc[size - 1 - i][j] = 1;
+        }
+    }
+    // Timing
+    for (let i = 8; i < size - 8; i++) {
+        isFunc[6][i] = 1;
+        isFunc[i][6] = 1;
+    }
+    // Format info
+    for (let i = 0; i < 9; i++) { isFunc[8][i] = 1; isFunc[i][8] = 1; }
+    for (let i = 0; i < 8; i++) { isFunc[8][size-1-i] = 1; isFunc[size-1-i][8] = 1; }
+
+    // Alignment patterns
+    const ALIGN_POS = [
+        null,[],
+        [6,18],[6,22],[6,26],[6,30],[6,34],
+        [6,22,38],[6,24,42],[6,26,46],[6,28,50],
+        [6,30,54],[6,32,58],[6,34,62],[6,26,46,66],
+        [6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],
+        [6,30,58,86],[6,34,62,90]
+    ];
+    if (version >= 2) {
+        const positions = ALIGN_POS[version];
+        for (const r of positions) {
+            for (const c of positions) {
+                if (isFunc[r] && isFunc[r][c]) continue;
+                for (let dr = -2; dr <= 2; dr++) {
+                    for (let dc = -2; dc <= 2; dc++) {
+                        const rr = r+dr, cc = c+dc;
+                        if (rr >= 0 && rr < size && cc >= 0 && cc < size)
+                            isFunc[rr][cc] = 1;
+                    }
+                }
+            }
+        }
+    }
+    // Version info
+    if (version >= 7) {
+        for (let i = 0; i < 6; i++) {
+            for (let j = 0; j < 3; j++) {
+                isFunc[i][size-11+j] = 1;
+                isFunc[size-11+j][i] = 1;
+            }
+        }
+    }
+    // Dark module
+    isFunc[size - 8][8] = 1;
+    return isFunc;
+}
 
 // Initial setup
 initTheme();
