@@ -884,7 +884,7 @@
         </header>
 
         <div class="top-actions">
-            <button onclick="exportData()">📥 Export</button>
+            <button onclick="openExportModal()">📥 Export</button>
             <button onclick="document.getElementById('importFile').click()">📤 Import</button>
             <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
         </div>
@@ -933,6 +933,28 @@
         <footer class="footer">
             Made with <span class="heart">❤️</span> by <a href="https://sdet-karan.netlify.app/" target="_blank" rel="noopener noreferrer">Karan</a>
         </footer>
+    </div>
+
+    <!-- Export Options Modal -->
+    <div id="exportModal" class="modal-overlay">
+        <div class="modal" style="max-width: 480px;">
+            <div class="modal-header">
+                <h2>📥 Export Options</h2>
+                <button class="modal-close" onclick="closeExportModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 12px;">Select which tags to include in the backup:</p>
+                <div style="display:flex; gap:8px; margin-bottom: 14px;">
+                    <button class="tag-item-btn show active" onclick="selectAllExportTags()">✅ Select All</button>
+                    <button class="tag-item-btn show" onclick="deselectAllExportTags()">⬜ Deselect All</button>
+                </div>
+                <div class="tag-list" id="exportTagList"></div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeExportModal()">Cancel</button>
+                <button class="btn-save" onclick="performExport()">📥 Export Selected</button>
+            </div>
+        </div>
     </div>
 
     <!-- Edit Modal -->
@@ -1387,20 +1409,156 @@
             }
         }
 
-        // Export data
-        function exportData() {
+        // Export: open modal with tag selection
+        function openExportModal() {
             if (items.length === 0) {
                 showToast('No items to export!', 'error');
                 return;
             }
-            const blob = new Blob([JSON.stringify(items, null, 2)], {type: 'application/json'});
+            renderExportTagList();
+            document.getElementById('exportModal').classList.add('show');
+        }
+
+        function closeExportModal() {
+            document.getElementById('exportModal').classList.remove('show');
+        }
+
+        function renderExportTagList() {
+            const container = document.getElementById('exportTagList');
+            container.innerHTML = '';
+
+            const tagCounts = {};
+            tags.forEach(t => tagCounts[t] = 0);
+            items.forEach(item => {
+                if (item.tag && tagCounts.hasOwnProperty(item.tag)) tagCounts[item.tag]++;
+            });
+            const untaggedCount = items.filter(i => !i.tag).length;
+
+            tags.forEach((tag, idx) => {
+                const div = document.createElement('div');
+                div.className = 'tag-item';
+                const left = document.createElement('div');
+                left.className = 'tag-item-left';
+                left.style.gap = '10px';
+
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.className = 'export-tag-cb';
+                cb.value = tag;
+                cb.checked = true;
+                cb.id = `exp-tag-${idx}`;
+                cb.style.cssText = 'width:16px;height:16px;cursor:pointer;accent-color:#7b2ff7;flex-shrink:0;';
+
+                const lbl = document.createElement('label');
+                lbl.htmlFor = `exp-tag-${idx}`;
+                lbl.style.cssText = 'cursor:pointer;display:flex;gap:8px;align-items:center;';
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'tag-item-name';
+                nameSpan.textContent = tag;
+                const countSpan = document.createElement('span');
+                countSpan.className = 'tag-item-count';
+                countSpan.textContent = `${tagCounts[tag]} items`;
+                lbl.appendChild(nameSpan);
+                lbl.appendChild(countSpan);
+
+                left.appendChild(cb);
+                left.appendChild(lbl);
+                div.appendChild(left);
+                container.appendChild(div);
+            });
+
+            if (untaggedCount > 0) {
+                const div = document.createElement('div');
+                div.className = 'tag-item';
+                const left = document.createElement('div');
+                left.className = 'tag-item-left';
+                left.style.gap = '10px';
+
+                const cb = document.createElement('input');
+                cb.type = 'checkbox';
+                cb.className = 'export-tag-cb';
+                cb.value = '__untagged__';
+                cb.checked = true;
+                cb.id = 'exp-tag-untagged';
+                cb.style.cssText = 'width:16px;height:16px;cursor:pointer;accent-color:#7b2ff7;flex-shrink:0;';
+
+                const lbl = document.createElement('label');
+                lbl.htmlFor = 'exp-tag-untagged';
+                lbl.style.cssText = 'cursor:pointer;display:flex;gap:8px;align-items:center;';
+                const nameSpan = document.createElement('span');
+                nameSpan.className = 'tag-item-name';
+                nameSpan.textContent = 'Untagged';
+                const countSpan = document.createElement('span');
+                countSpan.className = 'tag-item-count';
+                countSpan.textContent = `${untaggedCount} items`;
+                lbl.appendChild(nameSpan);
+                lbl.appendChild(countSpan);
+
+                left.appendChild(cb);
+                left.appendChild(lbl);
+                div.appendChild(left);
+                container.appendChild(div);
+            }
+
+            if (container.children.length === 0) {
+                container.innerHTML = '<p style="color:#64748b;text-align:center;padding:20px;">No tags available.</p>';
+            }
+        }
+
+        function selectAllExportTags() {
+            document.querySelectorAll('.export-tag-cb').forEach(cb => cb.checked = true);
+        }
+
+        function deselectAllExportTags() {
+            document.querySelectorAll('.export-tag-cb').forEach(cb => cb.checked = false);
+        }
+
+        function performExport() {
+            const chosen = Array.from(document.querySelectorAll('.export-tag-cb:checked')).map(cb => cb.value);
+
+            if (chosen.length === 0) {
+                showToast('Please select at least one tag!', 'error');
+                return;
+            }
+
+            const exportItems = items.filter(item => {
+                if (!item.tag) return chosen.includes('__untagged__');
+                return chosen.includes(item.tag);
+            });
+
+            if (exportItems.length === 0) {
+                showToast('No items found for selected tags!', 'error');
+                return;
+            }
+
+            const blob = new Blob([JSON.stringify(exportItems, null, 2)], {type: 'application/json'});
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'copy-paste-backup.json';
+
+            // Build a descriptive filename
+            const totalOptions = tags.length + (items.some(i => !i.tag) ? 1 : 0);
+            const isAll = chosen.length === totalOptions;
+            let filename;
+            if (isAll) {
+                filename = 'copy-paste-backup.json';
+            } else {
+                const tagPart = chosen
+                    .filter(v => v !== '__untagged__')
+                    .map(v => v.replace(/[^a-zA-Z0-9-_]/g, '_'))
+                    .join('-');
+                const untaggedPart = chosen.includes('__untagged__')
+                    ? (tagPart ? '-untagged' : 'untagged') : '';
+                filename = `copy-paste-backup-${tagPart}${untaggedPart}.json`;
+            }
+
+            a.download = filename;
+            document.body.appendChild(a);
             a.click();
+            document.body.removeChild(a);
             URL.revokeObjectURL(url);
-            showToast('Exported successfully!');
+            closeExportModal();
+            showToast(`Exported ${exportItems.length} item${exportItems.length !== 1 ? 's' : ''}!`);
         }
 
         // Import data
@@ -1461,9 +1619,9 @@
             setTimeout(() => toast.classList.remove('show'), type === 'warning' ? 4000 : 3000);
         }
 
-        // Close modal on escape
+        // Close modals on escape
         document.addEventListener('keydown', e => {
-            if (e.key === 'Escape') closeModal();
+            if (e.key === 'Escape') { closeModal(); closeExportModal(); }
         });
 
         // Close modal on backdrop click
@@ -1473,6 +1631,10 @@
 
         document.getElementById('tagsModal').addEventListener('click', e => {
             if (e.target.classList.contains('modal-overlay')) closeTagsModal();
+        });
+
+        document.getElementById('exportModal').addEventListener('click', e => {
+            if (e.target.classList.contains('modal-overlay')) closeExportModal();
         });
 
         // Tags Modal Functions
