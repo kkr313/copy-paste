@@ -1188,3 +1188,81 @@ textarea.input-field {
     transform: translateY(-1px);
     box-shadow: var(--shadow-sm);
 }
+
+/* Share button */
+.btn-share {
+    background: rgba(59, 130, 246, 0.15);
+    color: #60a5fa;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+.btn-share:hover {
+    background: rgba(59, 130, 246, 0.25);
+    border-color: rgba(59, 130, 246, 0.5);
+}
+
+/* Share modal styles */
+.share-modal-body {
+    text-align: center;
+}
+
+.share-snippet-label {
+    color: var(--text-primary);
+    font-size: 0.95rem;
+    margin-bottom: 8px;
+}
+
+.share-link-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 16px;
+    align-items: stretch;
+    flex-wrap: nowrap;
+}
+
+.share-link-row .input-field {
+    flex: 1;
+    min-width: 0;
+    font-size: 0.75rem;
+    padding: 8px 12px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+.share-link-row .btn-copy {
+    padding: 8px 12px;
+    font-size: 0.75rem;
+    white-space: nowrap;
+    flex-shrink: 0;
+    margin: 0;
+    box-sizing: border-box;
+}
+
+.share-qr-section {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 16px;
+    background: rgba(255, 255, 255, 0.03);
+    border-radius: 12px;
+    border: 1px solid var(--border);
+}
+
+.share-qr-section canvas {
+    border-radius: 8px;
+    background: #fff;
+    padding: 8px;
+}
+
+[data-theme="light"] .btn-share {
+    background: rgba(59, 130, 246, 0.1);
+    color: #2563eb;
+    border-color: rgba(59, 130, 246, 0.3);
+}
+
+[data-theme="light"] .btn-share:hover {
+    background: rgba(59, 130, 246, 0.2);
+}

@@ -139,6 +139,33 @@
         </div>
     </div>
 
+    <!-- Share Modal -->
+    <div id="shareModal" class="modal-overlay">
+        <div class="modal" style="max-width: 420px;">
+            <div class="modal-header">
+                <h2>🔗 Share Snippet</h2>
+                <button class="modal-close" onclick="closeShareModal()">&times;</button>
+            </div>
+            <div class="modal-body share-modal-body">
+                <p class="share-snippet-label">Sharing: <strong id="shareLabel"></strong></p>
+                <p style="color: #94a3b8; font-size: 0.75rem; margin-bottom: 12px;">⚠️ Anyone with this link can view this snippet. Don't share sensitive data.</p>
+                <div class="share-link-row">
+                    <input type="text" id="shareLink" readonly class="input-field">
+                    <button class="btn btn-copy" onclick="copyShareLink()">📋 Copy</button>
+                </div>
+                <div class="share-qr-section">
+                    <p style="color: var(--text-secondary); font-size: 0.85rem; margin-bottom: 8px;">Scan QR to open on another device:</p>
+                    <canvas id="qrCanvas" width="280" height="280"></canvas>
+                    <p id="qrFallback" style="display:none; color:#f59e0b; font-size:0.8rem; margin-top:8px;">Snippet too large for QR. Share using the link above.</p>
+                    <button class="btn btn-share" onclick="downloadQR()" style="margin-top: 10px;">💾 Download QR</button>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeShareModal()">Close</button>
+            </div>
+        </div>
+    </div>
+
     <div id="toast" class="toast"></div>
 
     <script src="app.js"></script>

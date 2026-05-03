@@ -220,6 +220,7 @@ function render() {
                 </div>
                 <div class="item-card-actions">
                     <button class="btn btn-copy" onclick="copyItem('${item.id}')">📋 Copy</button>
+                    <button class="btn btn-share" onclick="shareItem('${item.id}')">🔗 Share</button>
                     <button class="btn btn-edit" onclick="editItem('${item.id}')">✏️ Edit</button>
                     <button class="btn btn-delete" onclick="deleteItem('${item.id}')">🗑️ Delete</button>
                 </div>
@@ -617,7 +618,7 @@ function showToast(msg, type) {
 
 // Close modals on escape
 document.addEventListener('keydown', e => {
-    if (e.key === 'Escape') { closeModal(); closeExportModal(); }
+    if (e.key === 'Escape') { closeModal(); closeExportModal(); closeShareModal(); }
 });
 
 // Close modal on backdrop click
@@ -805,9 +806,453 @@ function initTheme() {
     updateThemeButton(saved);
 }
 
+// ========== QR Code Generator (Complete, supports up to ~900 bytes) ==========
+const QR = (() => {
+    // GF(256) with polynomial 0x11d
+    const EXP = new Uint8Array(512);
+    const LOG = new Uint8Array(256);
+    (() => {
+        let x = 1;
+        for (let i = 0; i < 255; i++) {
+            EXP[i] = x;
+            LOG[x] = i;
+            x = (x << 1) ^ (x & 128 ? 0x11d : 0);
+        }
+        for (let i = 255; i < 512; i++) EXP[i] = EXP[i - 255];
+    })();
+
+    function gfMul(a, b) { return a && b ? EXP[LOG[a] + LOG[b]] : 0; }
+
+    function polyMul(a, b) {
+        const r = new Uint8Array(a.length + b.length - 1);
+        for (let i = 0; i < a.length; i++)
+            for (let j = 0; j < b.length; j++)
+                r[i + j] ^= gfMul(a[i], b[j]);
+        return r;
+    }
+
+    function rsEncode(data, ecLen) {
+        let gen = new Uint8Array([1]);
+        for (let i = 0; i < ecLen; i++)
+            gen = polyMul(gen, new Uint8Array([1, EXP[i]]));
+        const msg = new Uint8Array(data.length + ecLen);
+        msg.set(data);
+        for (let i = 0; i < data.length; i++) {
+            const coef = msg[i];
+            if (coef) for (let j = 0; j < gen.length; j++)
+                msg[i + j] ^= gfMul(gen[j], coef);
+        }
+        return msg.slice(data.length);
+    }
+
+    // Version capacities (byte mode, ECC L): [totalCodewords, ecPerBlock, numBlocks, dataPerBlock]
+    const VERSIONS = [
+        null,
+        [26,7,1,19],[44,10,1,34],[70,15,1,55],[100,20,1,80],
+        [134,26,1,108],[172,18,2,68],[196,20,2,78],[242,24,2,97],
+        [292,30,2,116],[346,18,2,68+1], // v10: 2 blocks, 68+69
+        [404,20,4,81],[466,24,4,92],[532,26,4,107],[581,30,3,115+1],
+        [655,22,5,87+1],[733,24,5,98],[820,28,5,107+1],[876,30,5,120+1],
+        [948,28,3,113+2],[1051,28,3,107+4] // up to v20
+    ];
+
+    // Alignment pattern positions by version
+    const ALIGN_POS = [
+        null,[],
+        [6,18],[6,22],[6,26],[6,30],[6,34],
+        [6,22,38],[6,24,42],[6,26,46],[6,28,50],
+        [6,30,54],[6,32,58],[6,34,62],[6,26,46,66],
+        [6,26,48,70],[6,26,50,74],[6,30,54,78],[6,30,56,82],
+        [6,30,58,86],[6,34,62,90]
+    ];
+
+    // Data capacity in bytes for each version (ECC L, byte mode)
+    const CAPACITY = [0,17,32,53,78,106,134,154,192,230,271,321,367,425,458,520,586,644,718,792,858];
+
+    function getVersion(dataLen) {
+        for (let v = 1; v <= 20; v++) {
+            if (dataLen <= CAPACITY[v]) return v;
+        }
+        return 0; // too long
+    }
+
+    function makeMatrix(text) {
+        const rawData = new TextEncoder().encode(text);
+        const version = getVersion(rawData.length);
+        if (!version) return null;
+
+        const size = 17 + version * 4;
+        const grid = Array.from({length: size}, () => new Int8Array(size)); // 0=light, 1=dark, -1 reserved but light
+        const isFunc = Array.from({length: size}, () => new Uint8Array(size)); // 1=function pattern
+
+        // Finder patterns
+        function setFinder(r, c) {
+            for (let dr = -1; dr <= 7; dr++) {
+                for (let dc = -1; dc <= 7; dc++) {
+                    const rr = r + dr, cc = c + dc;
+                    if (rr < 0 || cc < 0 || rr >= size || cc >= size) continue;
+                    const inOuter = dr >= 0 && dr <= 6 && dc >= 0 && dc <= 6;
+                    const inInner = dr >= 2 && dr <= 4 && dc >= 2 && dc <= 4;
+                    const onBorder = dr === 0 || dr === 6 || dc === 0 || dc === 6;
+                    grid[rr][cc] = (inOuter && (onBorder || inInner)) ? 1 : 0;
+                    isFunc[rr][cc] = 1;
+                }
+            }
+        }
+        setFinder(0, 0);
+        setFinder(0, size - 7);
+        setFinder(size - 7, 0);
+
+        // Alignment patterns
+        if (version >= 2) {
+            const positions = ALIGN_POS[version];
+            for (let i = 0; i < positions.length; i++) {
+                for (let j = 0; j < positions.length; j++) {
+                    const r = positions[i], c = positions[j];
+                    if (isFunc[r][c]) continue;
+                    for (let dr = -2; dr <= 2; dr++) {
+                        for (let dc = -2; dc <= 2; dc++) {
+                            const dark = Math.abs(dr) === 2 || Math.abs(dc) === 2 || (dr === 0 && dc === 0);
+                            grid[r + dr][c + dc] = dark ? 1 : 0;
+                            isFunc[r + dr][c + dc] = 1;
+                        }
+                    }
+                }
+            }
+        }
+
+        // Timing patterns
+        for (let i = 8; i < size - 8; i++) {
+            const dark = i % 2 === 0 ? 1 : 0;
+            grid[6][i] = dark; isFunc[6][i] = 1;
+            grid[i][6] = dark; isFunc[i][6] = 1;
+        }
+
+        // Dark module + reserved format areas
+        grid[size - 8][8] = 1;
+        isFunc[size - 8][8] = 1;
+        for (let i = 0; i < 9; i++) { isFunc[8][i] = 1; isFunc[i][8] = 1; }
+        for (let i = 0; i < 8; i++) { isFunc[8][size - 1 - i] = 1; isFunc[size - 1 - i][8] = 1; }
+
+        // Version info (v >= 7) - mark reserved
+        if (version >= 7) {
+            for (let i = 0; i < 6; i++) {
+                for (let j = 0; j < 3; j++) {
+                    isFunc[i][size - 11 + j] = 1;
+                    isFunc[size - 11 + j][i] = 1;
+                }
+            }
+        }
+
+        // Encode data
+        const vInfo = VERSIONS[version];
+        const totalCodewords = vInfo[0];
+        const ecPerBlock = vInfo[1];
+        const numBlocks = vInfo[2];
+        
+        // Build data codewords
+        const countBits = version <= 9 ? 8 : 16;
+        let bitBuf = [];
+        // Mode: byte (0100)
+        bitBuf.push(0, 1, 0, 0);
+        // Count
+        for (let i = countBits - 1; i >= 0; i--) bitBuf.push((rawData.length >> i) & 1);
+        // Data
+        for (let b of rawData) for (let i = 7; i >= 0; i--) bitBuf.push((b >> i) & 1);
+        // Terminator
+        const dataCodewords = totalCodewords - ecPerBlock * numBlocks;
+        const maxBits = dataCodewords * 8;
+        for (let i = 0; i < 4 && bitBuf.length < maxBits; i++) bitBuf.push(0);
+        while (bitBuf.length % 8) bitBuf.push(0);
+        while (bitBuf.length < maxBits) {
+            bitBuf.push(1,1,1,0,1,1,0,0); // 0xEC
+            if (bitBuf.length < maxBits) bitBuf.push(0,0,0,1,0,0,0,1); // 0x11
+        }
+        bitBuf = bitBuf.slice(0, maxBits);
+
+        // Convert to bytes
+        const dataBytes = new Uint8Array(dataCodewords);
+        for (let i = 0; i < dataCodewords; i++) {
+            let v = 0;
+            for (let b = 0; b < 8; b++) v = (v << 1) | bitBuf[i * 8 + b];
+            dataBytes[i] = v;
+        }
+
+        // Split into blocks and compute EC
+        const blockDataLen = Math.floor(dataCodewords / numBlocks);
+        const blocks = [];
+        const ecBlocks = [];
+        let offset = 0;
+        for (let b = 0; b < numBlocks; b++) {
+            const len = blockDataLen + (b >= numBlocks - (dataCodewords % numBlocks) && dataCodewords % numBlocks ? 1 : 0);
+            const block = dataBytes.slice(offset, offset + len);
+            blocks.push(block);
+            ecBlocks.push(rsEncode(block, ecPerBlock));
+            offset += len;
+        }
+
+        // Interleave
+        const result = [];
+        const maxDataLen = Math.max(...blocks.map(b => b.length));
+        for (let i = 0; i < maxDataLen; i++)
+            for (let b = 0; b < numBlocks; b++)
+                if (i < blocks[b].length) result.push(blocks[b][i]);
+        for (let i = 0; i < ecPerBlock; i++)
+            for (let b = 0; b < numBlocks; b++)
+                result.push(ecBlocks[b][i]);
+
+        // Place data bits
+        let bitIdx = 0;
+        const totalBits = result.length * 8;
+        let goingUp = true;
+        for (let col = size - 1; col >= 1; col -= 2) {
+            if (col === 6) col = 5;
+            for (let cnt = 0; cnt < size; cnt++) {
+                const row = goingUp ? size - 1 - cnt : cnt;
+                for (let dx = 0; dx <= 1; dx++) {
+                    const c = col - dx;
+                    if (!isFunc[row][c]) {
+                        if (bitIdx < totalBits) {
+                            const byteIdx = bitIdx >> 3;
+                            const bitPos = 7 - (bitIdx & 7);
+                            grid[row][c] = (result[byteIdx] >> bitPos) & 1;
+                        }
+                        bitIdx++;
+                    }
+                }
+            }
+            goingUp = !goingUp;
+        }
+
+        // Apply best mask
+        let bestMask = 0, bestPenalty = Infinity;
+        for (let mask = 0; mask < 8; mask++) {
+            const test = grid.map(r => Int8Array.from(r));
+            applyMask(test, isFunc, mask, size);
+            const pen = calcPenalty(test, size);
+            if (pen < bestPenalty) { bestPenalty = pen; bestMask = mask; }
+        }
+        applyMask(grid, isFunc, bestMask, size);
+
+        // Format info
+        const formatVal = getFormatBits(0, bestMask); // ECC L = 01
+        for (let i = 0; i < 6; i++) grid[8][i] = (formatVal >> (14 - i)) & 1;
+        grid[8][7] = (formatVal >> 8) & 1;
+        grid[8][8] = (formatVal >> 7) & 1;
+        grid[7][8] = (formatVal >> 6) & 1;
+        for (let i = 0; i < 6; i++) grid[5 - i][8] = (formatVal >> (5 - i)) & 1;
+
+        for (let i = 0; i < 8; i++) grid[8][size - 8 + i] = (formatVal >> (14 - i)) & 1;
+        for (let i = 0; i < 7; i++) grid[size - 7 + i][8] = (formatVal >> (6 - i)) & 1;
+
+        return grid;
+    }
+
+    function applyMask(grid, isFunc, mask, size) {
+        for (let r = 0; r < size; r++) {
+            for (let c = 0; c < size; c++) {
+                if (isFunc[r][c]) continue;
+                let invert = false;
+                switch (mask) {
+                    case 0: invert = (r + c) % 2 === 0; break;
+                    case 1: invert = r % 2 === 0; break;
+                    case 2: invert = c % 3 === 0; break;
+                    case 3: invert = (r + c) % 3 === 0; break;
+                    case 4: invert = (Math.floor(r/2) + Math.floor(c/3)) % 2 === 0; break;
+                    case 5: invert = (r*c)%2 + (r*c)%3 === 0; break;
+                    case 6: invert = ((r*c)%2 + (r*c)%3) % 2 === 0; break;
+                    case 7: invert = ((r+c)%2 + (r*c)%3) % 2 === 0; break;
+                }
+                if (invert) grid[r][c] ^= 1;
+            }
+        }
+    }
+
+    function calcPenalty(grid, size) {
+        let penalty = 0;
+        // Rule 1: consecutive same-color runs
+        for (let r = 0; r < size; r++) {
+            let run = 1;
+            for (let c = 1; c < size; c++) {
+                if (grid[r][c] === grid[r][c-1]) { run++; }
+                else { if (run >= 5) penalty += run - 2; run = 1; }
+            }
+            if (run >= 5) penalty += run - 2;
+        }
+        for (let c = 0; c < size; c++) {
+            let run = 1;
+            for (let r = 1; r < size; r++) {
+                if (grid[r][c] === grid[r-1][c]) { run++; }
+                else { if (run >= 5) penalty += run - 2; run = 1; }
+            }
+            if (run >= 5) penalty += run - 2;
+        }
+        // Rule 2: 2x2 blocks
+        for (let r = 0; r < size - 1; r++) {
+            for (let c = 0; c < size - 1; c++) {
+                const v = grid[r][c];
+                if (v === grid[r][c+1] && v === grid[r+1][c] && v === grid[r+1][c+1])
+                    penalty += 3;
+            }
+        }
+        return penalty;
+    }
+
+    // BCH(15,5) for format info
+    function getFormatBits(ecl, mask) {
+        const data = ((ecl ^ 1) << 3) | mask; // ECC L = 01
+        let bits = data << 10;
+        let gen = 0x537;
+        for (let i = 14; i >= 10; i--) {
+            if (bits & (1 << i)) bits ^= gen << (i - 10);
+        }
+        return ((data << 10) | bits) ^ 0x5412;
+    }
+
+    return { makeMatrix, getVersion };
+})();
+
+function generateQR(text) {
+    const canvas = document.getElementById('qrCanvas');
+    const ctx = canvas.getContext('2d');
+    const canvasSize = 280;
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvasSize, canvasSize);
+
+    const matrix = QR.makeMatrix(text);
+    if (!matrix) {
+        ctx.fillStyle = '#64748b';
+        ctx.font = '13px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('Content too long for QR code.', canvasSize/2, canvasSize/2 - 10);
+        ctx.fillText('Use the share link instead.', canvasSize/2, canvasSize/2 + 10);
+        document.getElementById('qrFallback').style.display = 'block';
+        return;
+    }
+
+    document.getElementById('qrFallback').style.display = 'none';
+    const modules = matrix.length;
+    const cellSize = Math.floor((canvasSize - 16) / modules);
+    const offset = Math.floor((canvasSize - cellSize * modules) / 2);
+
+    ctx.fillStyle = '#000000';
+    for (let r = 0; r < modules; r++) {
+        for (let c = 0; c < modules; c++) {
+            if (matrix[r][c]) {
+                ctx.fillRect(offset + c * cellSize, offset + r * cellSize, cellSize, cellSize);
+            }
+        }
+    }
+}
+
+// ========== Share Functions ==========
+function shareItem(id) {
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+    
+    // Generate shareable link
+    const shareData = { label: item.label, content: item.content, tag: item.tag };
+    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(shareData))));
+    const shareUrl = window.location.origin + window.location.pathname + '#share=' + encoded;
+    
+    document.getElementById('shareLink').value = shareUrl;
+    document.getElementById('shareLabel').textContent = item.label;
+    
+    // Generate QR code
+    generateQR(shareUrl);
+    
+    document.getElementById('shareModal').classList.add('show');
+}
+
+function closeShareModal() {
+    document.getElementById('shareModal').classList.remove('show');
+}
+
+function copyShareLink() {
+    const linkInput = document.getElementById('shareLink');
+    navigator.clipboard.writeText(linkInput.value).then(() => {
+        showToast('Share link copied!');
+    }).catch(() => {
+        linkInput.select();
+        document.execCommand('copy');
+        showToast('Share link copied!');
+    });
+}
+
+function downloadQR() {
+    const canvas = document.getElementById('qrCanvas');
+    const link = document.createElement('a');
+    link.download = 'snippet-qr.png';
+    link.href = canvas.toDataURL();
+    link.click();
+}
+
+// Handle incoming shared link
+function handleSharedLink() {
+    const hash = window.location.hash;
+    if (!hash.startsWith('#share=')) return;
+    
+    try {
+        const encoded = hash.substring(7);
+        const json = decodeURIComponent(escape(atob(encoded)));
+        const shared = JSON.parse(json);
+        
+        if (!shared.label || !shared.content) {
+            showToast('Invalid share link!', 'error');
+            return;
+        }
+        
+        // Check if already exists
+        const exists = items.some(i => i.content === shared.content && i.label === shared.label);
+        if (exists) {
+            showToast('This snippet already exists in your collection!', 'warning');
+            window.history.replaceState(null, '', window.location.pathname);
+            return;
+        }
+        
+        // Import the shared tag if new
+        if (shared.tag && !tags.includes(shared.tag)) {
+            tags.push(shared.tag);
+            if (!selectedTags.includes(shared.tag)) {
+                selectedTags.push(shared.tag);
+                saveSelectedTags();
+            }
+            saveTags();
+            populateTagDropdowns();
+        }
+        
+        if (confirm(`Import shared snippet "${shared.label}"?`)) {
+            items.unshift({
+                id: Date.now().toString(),
+                label: shared.label,
+                content: shared.content,
+                tag: shared.tag || null
+            });
+            save();
+            render();
+            showToast('Shared snippet imported!');
+        }
+        
+        // Clean up URL
+        window.history.replaceState(null, '', window.location.pathname);
+    } catch (e) {
+        showToast('Invalid share link!', 'error');
+        window.history.replaceState(null, '', window.location.pathname);
+    }
+}
+
+// Close share modal on escape and backdrop
+document.getElementById('shareModal').addEventListener('click', e => {
+    if (e.target.classList.contains('modal-overlay')) closeShareModal();
+});
+
 // Initial setup
 initTheme();
 initSelectedTags();
 populateTagDropdowns();
 renderTabs();
 render();
+handleSharedLink();
