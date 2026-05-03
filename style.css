@@ -775,6 +775,15 @@ textarea.input-field {
     background: rgba(239, 68, 68, 0.22);
 }
 
+.tag-item-btn.rename {
+    background: rgba(251, 191, 36, 0.12);
+    color: #fbbf24;
+}
+
+.tag-item-btn.rename:hover {
+    background: rgba(251, 191, 36, 0.22);
+}
+
 .new-tag-input {
     display: flex;
     gap: 10px;

@@ -1,9 +1,9 @@
-const CACHE_NAME = 'copy-paste-app-v6';
+const CACHE_NAME = 'copy-paste-app-v7';
 const urlsToCache = [
   './',
   './index.html',
-  './style.css',
-  './app.js',
+  './style.css?v=6',
+  './app.js?v=6',
   './manifest.json'
 ];
 

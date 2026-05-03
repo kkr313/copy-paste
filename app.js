@@ -672,9 +672,10 @@ function renderTagList() {
                 </div>
                 <div class="tag-item-actions">
                     <button class="tag-item-btn ${isChecked ? 'show active' : 'show'}" onclick="toggleTagFilter('${escapeHtml(tag)}')">
-                        ${isChecked ? '👁️ Visible' : '👁️‍🗨️ Hidden'}
+                        ${isChecked ? '👁️ Show' : '👁️‍🗨️ Hide'}
                     </button>
-                    <button class="tag-item-btn delete" onclick="deleteTag('${escapeHtml(tag)}')">🗑️ Delete</button>
+                    <button class="tag-item-btn rename" onclick="renameTag('${escapeHtml(tag)}')" title="Rename">✏️ R</button>
+                    <button class="tag-item-btn delete" onclick="deleteTag('${escapeHtml(tag)}')" title="Delete">🗑️ D</button>
                 </div>
             </div>
         `}).join('');
@@ -689,7 +690,7 @@ function renderTagList() {
             </div>
             <div class="tag-item-actions">
                 <button class="tag-item-btn ${isUntaggedChecked ? 'show active' : 'show'}" onclick="toggleTagFilter('__untagged__')">
-                    ${isUntaggedChecked ? '👁️ Visible' : '👁️‍🗨️ Hidden'}
+                    ${isUntaggedChecked ? '👁️ Show' : '👁️‍🗨️ Hide'}
                 </button>
             </div>
         </div>
@@ -761,6 +762,44 @@ function deleteTag(tagName) {
     renderTagList();
     render();
     showToast('Tag deleted!');
+}
+
+function renameTag(oldName) {
+    const newName = prompt(`Rename tag "${oldName}" to:`, oldName);
+    if (!newName || !newName.trim()) return;
+    const trimmed = newName.trim();
+    
+    if (trimmed === oldName) return;
+    
+    if (tags.includes(trimmed)) {
+        showToast('A tag with that name already exists!', 'error');
+        return;
+    }
+    
+    // Update tag list
+    const idx = tags.indexOf(oldName);
+    if (idx > -1) tags[idx] = trimmed;
+    saveTags();
+    
+    // Update all items with this tag
+    items.forEach(item => {
+        if (item.tag === oldName) item.tag = trimmed;
+    });
+    save();
+    
+    // Update selected tags
+    const selIdx = selectedTags.indexOf(oldName);
+    if (selIdx > -1) selectedTags[selIdx] = trimmed;
+    saveSelectedTags();
+    
+    // Update active filter
+    if (activeFilterTag === oldName) activeFilterTag = trimmed;
+    
+    populateTagDropdowns();
+    renderTagList();
+    renderTabs();
+    render();
+    showToast(`Tag renamed to "${trimmed}"!`);
 }
 
 // Handle Enter key in new tag input
