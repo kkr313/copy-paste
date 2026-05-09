@@ -1154,15 +1154,16 @@ const QR = (() => {
 function generateQR(text) {
     const canvas = document.getElementById('qrCanvas');
     const ctx = canvas.getContext('2d');
-    const canvasSize = 280;
-    canvas.width = canvasSize;
-    canvas.height = canvasSize;
-
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, canvasSize, canvasSize);
 
     const matrix = QR.makeMatrix(text);
     if (!matrix) {
+        const canvasSize = 280;
+        canvas.width = canvasSize;
+        canvas.height = canvasSize;
+        canvas.style.width = '280px';
+        canvas.style.height = '280px';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillRect(0, 0, canvasSize, canvasSize);
         ctx.fillStyle = '#64748b';
         ctx.font = '13px sans-serif';
         ctx.textAlign = 'center';
@@ -1174,7 +1175,20 @@ function generateQR(text) {
 
     document.getElementById('qrFallback').style.display = 'none';
     const modules = matrix.length;
-    const cellSize = Math.floor((canvasSize - 16) / modules);
+    // Render at high resolution: each module gets 8px for crisp output
+    const cellSize = 8;
+    const padding = 32;
+    const canvasSize = modules * cellSize + padding;
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+    // Display size: ensure each displayed module is at least 4px
+    const displaySize = Math.max(280, Math.min(400, modules * 4 + 16));
+    canvas.style.width = displaySize + 'px';
+    canvas.style.height = displaySize + 'px';
+
+    ctx.fillStyle = '#ffffff';
+    ctx.fillRect(0, 0, canvasSize, canvasSize);
+
     const offset = Math.floor((canvasSize - cellSize * modules) / 2);
 
     ctx.fillStyle = '#000000';
@@ -1187,18 +1201,71 @@ function generateQR(text) {
     }
 }
 
+// ========== Compression for Share URLs ==========
+async function compressForShare(text) {
+    if (typeof CompressionStream !== 'undefined') {
+        try {
+            const blob = new Blob([new TextEncoder().encode(text)]);
+            const stream = blob.stream().pipeThrough(new CompressionStream('deflate-raw'));
+            const compressedBlob = await new Response(stream).blob();
+            const buffer = await compressedBlob.arrayBuffer();
+            const bytes = new Uint8Array(buffer);
+            let binary = '';
+            bytes.forEach(b => binary += String.fromCharCode(b));
+            const b64 = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+            // Only use compressed version if it's actually smaller
+            const uncompressed = btoa(unescape(encodeURIComponent(text)));
+            if (b64.length + 2 < uncompressed.length) {
+                return 'z:' + b64;
+            }
+            return uncompressed;
+        } catch(e) {}
+    }
+    return btoa(unescape(encodeURIComponent(text)));
+}
+
+async function decompressForShare(encoded) {
+    if (encoded.startsWith('z:')) {
+        const b64 = encoded.slice(2).replace(/-/g, '+').replace(/_/g, '/');
+        const pad = b64.length % 4;
+        const padded = pad ? b64 + '='.repeat(4 - pad) : b64;
+        const binary = atob(padded);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const stream = new Blob([bytes]).stream().pipeThrough(new DecompressionStream('deflate-raw'));
+        const decompressedBlob = await new Response(stream).blob();
+        return await decompressedBlob.text();
+    }
+    // Legacy uncompressed format
+    return decodeURIComponent(escape(atob(encoded)));
+}
+
 // ========== Share Functions ==========
-function shareItem(id) {
+async function shareItem(id) {
     const item = items.find(i => i.id === id);
     if (!item) return;
     
-    // Generate shareable link
+    // Generate shareable link with compression
     const shareData = { label: item.label, content: item.content, tag: item.tag };
-    const encoded = btoa(unescape(encodeURIComponent(JSON.stringify(shareData))));
+    const encoded = await compressForShare(JSON.stringify(shareData));
     const shareUrl = window.location.origin + window.location.pathname + '#share=' + encoded;
     
     document.getElementById('shareLink').value = shareUrl;
     document.getElementById('shareLabel').textContent = item.label;
+    
+    // Show QR size info
+    const qrStatus = document.getElementById('qrSizeStatus');
+    const urlBytes = new TextEncoder().encode(shareUrl).length;
+    const maxQR = 858; // max capacity of QR version 20
+    if (urlBytes > maxQR) {
+        qrStatus.textContent = `⚠️ Content too large for QR (${urlBytes} bytes, max ~${maxQR}). Use the link instead.`;
+        qrStatus.style.color = '#f59e0b';
+    } else if (urlBytes > 600) {
+        qrStatus.textContent = `⚡ Large QR (${urlBytes}/${maxQR} bytes) — hold phone close when scanning.`;
+        qrStatus.style.color = '#94a3b8';
+    } else {
+        qrStatus.textContent = '';
+    }
     
     // Generate QR code
     generateQR(shareUrl);
@@ -1230,13 +1297,13 @@ function downloadQR() {
 }
 
 // Handle incoming shared link
-function handleSharedLink() {
+async function handleSharedLink() {
     const hash = window.location.hash;
     if (!hash.startsWith('#share=')) return;
     
     try {
         const encoded = hash.substring(7);
-        const json = decodeURIComponent(escape(atob(encoded)));
+        const json = await decompressForShare(encoded);
         const shared = JSON.parse(json);
         
         if (!shared.label || !shared.content) {
@@ -1448,7 +1515,7 @@ async function handleQRUpload(e) {
     img.src = URL.createObjectURL(file);
 }
 
-function processScannedQR(url) {
+async function processScannedQR(url) {
     // Extract the share hash from the URL
     const hashIdx = url.indexOf('#share=');
     if (hashIdx === -1) {
@@ -1458,7 +1525,7 @@ function processScannedQR(url) {
     
     try {
         const encoded = url.substring(hashIdx + 7);
-        const json = decodeURIComponent(escape(atob(encoded)));
+        const json = await decompressForShare(encoded);
         const shared = JSON.parse(json);
         
         if (!shared.label || !shared.content) {
