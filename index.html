@@ -10,35 +10,50 @@
     <title>Copy-Paste App</title>
     <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect x='15' y='25' width='70' height='65' rx='8' fill='%234f46e5'/><rect x='25' y='35' width='50' height='45' rx='4' fill='%23818cf8'/><rect x='30' y='10' width='40' height='25' rx='6' fill='%23a855f7'/><rect x='38' y='5' width='24' height='12' rx='4' fill='%23c084fc'/><line x1='35' y1='50' x2='65' y2='50' stroke='white' stroke-width='4' stroke-linecap='round'/><line x1='35' y1='62' x2='55' y2='62' stroke='white' stroke-width='4' stroke-linecap='round'/></svg>">
     <link rel="manifest" href="manifest.json">
-    <link rel="stylesheet" href="style.css?v=6">
+    <link rel="stylesheet" href="style.css?v=10">
 </head>
 <body>
     <div class="app-wrapper">
-        <header>
-            <h1>📋 <span class="text">Copy-Paste App</span></h1>
-            <p>Store and quickly copy your text snippets</p>
-        </header>
-
-        <div class="top-actions">
-            <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">🌙 Dark</button>
-            <button onclick="openExportModal()">📥 Export</button>
-            <button onclick="document.getElementById('importFile').click()">📤 Import</button>
-            <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
-            <button onclick="openQRScanner()">📷 Scan QR</button>
-            <input type="file" id="qrFileInput" accept="image/*" style="display:none" onchange="handleQRUpload(event)">
+        <div class="topbar">
+            <div class="topbar-brand">
+                <h1>📋 <span class="text">Copy-Paste App</span></h1>
+                <p>Store and quickly copy your text snippets</p>
+            </div>
+            <div class="topbar-actions">
+                <button class="theme-toggle" id="themeToggle" onclick="toggleTheme()">🌙 Dark</button>
+                <button onclick="openExportModal()">📥 Export</button>
+                <button onclick="document.getElementById('importFile').click()">📤 Import</button>
+                <input type="file" id="importFile" accept=".json" style="display:none" onchange="importData(event)">
+                <button onclick="openQRScanner()">📷 Scan QR</button>
+                <input type="file" id="qrFileInput" accept="image/*" style="display:none" onchange="handleQRUpload(event)">
+            </div>
         </div>
 
+        <!-- Add Content Toggle -->
+        <button class="add-content-toggle" id="addContentToggle" onclick="toggleAddContent()">
+            <span class="add-toggle-icon">➕</span>
+            <span class="add-toggle-label">Add Content</span>
+            <span class="add-toggle-arrow">▾</span>
+        </button>
+
+        <div class="input-card-wrap" id="inputCardWrap">
         <div class="input-card">
             <div class="input-row">
                 <input type="text" class="input-field" id="labelInput" placeholder="Label">
-                <select class="input-field" id="tagInput">
-                    <option value="">No Tag</option>
-                </select>
+                <select class="input-field" id="tagInput" style="display:none"></select>
+                <div class="custom-select" id="tagInputCustom" data-value="">
+                    <div class="custom-select-trigger" onclick="toggleCustomSelect('tagInputCustom')">
+                        <span class="custom-select-label">No Tag</span>
+                        <span class="custom-select-arrow">▾</span>
+                    </div>
+                    <div class="custom-select-menu"></div>
+                </div>
             </div>
             <div class="input-row-full">
                 <textarea class="input-field" id="contentInput" placeholder="Enter your content here..." rows="2"></textarea>
             </div>
             <button class="add-btn" onclick="addItem()">➕ Add Content</button>
+        </div>
         </div>
 
         <!-- Tags/Tabs Section -->
@@ -102,9 +117,14 @@
                 <label>Label</label>
                 <input type="text" id="editLabel">
                 <label>Tag</label>
-                <select id="editTag">
-                    <option value="">No Tag</option>
-                </select>
+                <select id="editTag" style="display:none"></select>
+                <div class="custom-select" id="editTagCustom" data-value="">
+                    <div class="custom-select-trigger" onclick="toggleCustomSelect('editTagCustom')">
+                        <span class="custom-select-label">No Tag</span>
+                        <span class="custom-select-arrow">▾</span>
+                    </div>
+                    <div class="custom-select-menu"></div>
+                </div>
                 <label>Content</label>
                 <textarea id="editContent" rows="4"></textarea>
             </div>
@@ -117,15 +137,15 @@
 
     <!-- Manage Tags Modal -->
     <div id="tagsModal" class="modal-overlay">
-        <div class="modal">
+        <div class="modal" style="max-width: 660px;">
             <div class="modal-header">
                 <h2>🏷️ Manage Tags</h2>
                 <button class="modal-close" onclick="closeTagsModal()">&times;</button>
             </div>
             <div class="modal-body">
-                <p style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 12px;">👁️ Click "Visible/Hidden" to show or hide tags in the filter</p>
+                <p style="color: #94a3b8; font-size: 0.8rem; margin-bottom: 12px;">🏷️ Create main tags, then add subtags with <strong>＋ Sub</strong>. Drag rows to reorder or move subtags between parent tags.</p>
                 <div class="new-tag-input">
-                    <input type="text" id="newTagInput" placeholder="Enter new tag name...">
+                    <input type="text" id="newTagInput" placeholder="New main tag name...">
                     <button onclick="addTag()">Add</button>
                 </div>
                 <div class="tag-list" id="tagList">
@@ -136,6 +156,7 @@
                 </div>
             </div>
             <div class="modal-footer">
+                <button class="btn-promote-all" onclick="promoteAllSubtagsGlobal()">⬆ All to Root</button>
                 <button class="btn-cancel" onclick="closeTagsModal()">Close</button>
             </div>
         </div>
@@ -211,6 +232,42 @@
         </div>
     </div>
 
-    <script src="app.js?v=6"></script>
+    <!-- Confirm Dialog Modal -->
+    <div id="confirmModal" class="modal-overlay">
+        <div class="modal modal-sm">
+            <div class="modal-header modal-header-danger">
+                <h2 id="confirmModalTitle">Confirm</h2>
+                <button class="modal-close" onclick="closeConfirmModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="confirmModalMsg" class="confirm-msg"></p>
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closeConfirmModal()">Cancel</button>
+                <button class="btn-danger" id="confirmModalBtn" onclick="_runConfirm()">Confirm</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Prompt / Rename Dialog Modal -->
+    <div id="promptModal" class="modal-overlay">
+        <div class="modal modal-sm">
+            <div class="modal-header">
+                <h2 id="promptModalTitle">Rename</h2>
+                <button class="modal-close" onclick="closePromptModal()">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p id="promptModalMsg" class="confirm-msg" style="margin-bottom:14px;"></p>
+                <input type="text" id="promptModalInput" class="input-field"
+                       onkeydown="if(event.key==='Enter')_runPrompt()" placeholder="">
+            </div>
+            <div class="modal-footer">
+                <button class="btn-cancel" onclick="closePromptModal()">Cancel</button>
+                <button class="btn-save" onclick="_runPrompt()">OK</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js?v=10"></script>
 </body>
 </html>

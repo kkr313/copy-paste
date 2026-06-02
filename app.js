@@ -1,12 +1,17 @@
 const STORAGE_KEY = 'copyPasteItems';
 const TAGS_KEY = 'copyPasteTags';
 const SELECTED_TAGS_KEY = 'copyPasteSelectedTags';
+const TAG_PARENTS_KEY = 'copyPasteTagParents';
 let items = JSON.parse(localStorage.getItem(STORAGE_KEY)) || [];
 let tags = JSON.parse(localStorage.getItem(TAGS_KEY)) || [];
 let selectedTags = JSON.parse(localStorage.getItem(SELECTED_TAGS_KEY)) || [];
+let tagParents = JSON.parse(localStorage.getItem(TAG_PARENTS_KEY)) || {};
 let activeFilterTag = '__all__';
 let editingId = null;
 let draggedIndex = null;
+let addingSubtagTo = null;
+let treeDragType = null;
+let treeDragTag = null;
 
 // Initialize selected tags - if empty, select all by default
 function initSelectedTags() {
@@ -15,6 +20,13 @@ function initSelectedTags() {
         saveSelectedTags();
     }
     selectedTags = selectedTags.filter(t => t === '__untagged__' || tags.includes(t));
+    // Ensure subtags of selected main tags are also selected
+    const mainTagsInSelected = selectedTags.filter(t => t !== '__untagged__' && !isSubtag(t));
+    mainTagsInSelected.forEach(mainTag => {
+        getSubtags(mainTag).forEach(sub => {
+            if (!selectedTags.includes(sub)) selectedTags.push(sub);
+        });
+    });
     saveSelectedTags();
 }
 
@@ -28,70 +40,208 @@ function saveTags() {
     localStorage.setItem(TAGS_KEY, JSON.stringify(tags));
 }
 
+// Save tag parents to localStorage
+function saveTagParents() {
+    localStorage.setItem(TAG_PARENTS_KEY, JSON.stringify(tagParents));
+}
+
+// Tag hierarchy helpers
+function getMainTags() {
+    return tags.filter(t => !tagParents[t]);
+}
+
+function getSubtags(parentTag) {
+    return tags.filter(t => tagParents[t] === parentTag);
+}
+
+function isSubtag(tag) {
+    return !!tagParents[tag];
+}
+
+function getActiveMainTag() {
+    if (activeFilterTag === '__all__' || activeFilterTag === '__untagged__') return null;
+    if (isSubtag(activeFilterTag)) return tagParents[activeFilterTag];
+    return activeFilterTag;
+}
+
 // Populate tag dropdowns
 function populateTagDropdowns() {
-    const tagInput = document.getElementById('tagInput');
-    const editTag = document.getElementById('editTag');
-    
-    const options = '<option value="">No Tag</option>' + 
-        tags.map(t => `<option value="${escapeHtml(t)}">${escapeHtml(t)}</option>`).join('');
-    
-    tagInput.innerHTML = options;
-    editTag.innerHTML = options;
+    const mainTags = getMainTags();
+
+    let html = `<div class="custom-select-option cs-no-tag" data-value="" onclick="selectCustomOption(this)">No Tag</div>`;
+
+    mainTags.forEach(mainTag => {
+        const subtags = getSubtags(mainTag);
+        if (subtags.length > 0) {
+            html += `<div class="custom-select-group-label">${escapeHtml(mainTag)}</div>`;
+            html += `<div class="custom-select-option" data-value="${escapeHtml(mainTag)}" onclick="selectCustomOption(this)">${escapeHtml(mainTag)} (General)</div>`;
+            subtags.forEach(sub => {
+                html += `<div class="custom-select-option custom-select-sub" data-value="${escapeHtml(sub)}" onclick="selectCustomOption(this)">↳ ${escapeHtml(sub)}</div>`;
+            });
+        } else {
+            html += `<div class="custom-select-option" data-value="${escapeHtml(mainTag)}" onclick="selectCustomOption(this)">${escapeHtml(mainTag)}</div>`;
+        }
+    });
+
+    ['tagInputCustom', 'editTagCustom'].forEach(id => {
+        const menu = document.querySelector(`#${id} .custom-select-menu`);
+        if (menu) menu.innerHTML = html;
+    });
 }
+
+// Custom select helpers
+function toggleCustomSelect(id) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const isOpen = el.classList.contains('open');
+    document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
+    if (!isOpen) el.classList.add('open');
+}
+
+function selectCustomOption(optionEl) {
+    const select = optionEl.closest('.custom-select');
+    if (!select) return;
+    const value = optionEl.dataset.value;
+    select.dataset.value = value;
+    const label = select.querySelector('.custom-select-label');
+    if (label) {
+        const displayText = value ? optionEl.textContent.trim() : 'No Tag';
+        label.textContent = displayText;
+        label.classList.toggle('placeholder', !value);
+    }
+    select.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+    optionEl.classList.add('selected');
+    select.classList.remove('open');
+}
+
+function setCustomSelectValue(id, value) {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.dataset.value = value || '';
+    const option = el.querySelector(`.custom-select-option[data-value="${CSS.escape(value || '')}"]`);
+    const label = el.querySelector('.custom-select-label');
+    if (label) {
+        label.textContent = (option && value) ? option.textContent.trim() : 'No Tag';
+        label.classList.toggle('placeholder', !value);
+    }
+    el.querySelectorAll('.custom-select-option').forEach(o => o.classList.remove('selected'));
+    if (option) option.classList.add('selected');
+    el.classList.remove('open');
+}
+
+// Close custom selects when clicking outside
+document.addEventListener('click', e => {
+    if (!e.target.closest('.custom-select')) {
+        document.querySelectorAll('.custom-select.open').forEach(s => s.classList.remove('open'));
+    }
+});
 
 // Render active filter tabs (only checked tags from Manage Tags)
 function renderTabs() {
     const container = document.getElementById('tabsContainer');
-    
+
+    // Guard: reset activeFilterTag if the active tag is no longer visible
+    if (activeFilterTag !== '__all__' && activeFilterTag !== '__untagged__') {
+        const isVisible = selectedTags.includes(activeFilterTag) ||
+            (isSubtag(activeFilterTag) && selectedTags.includes(tagParents[activeFilterTag]));
+        if (!isVisible) activeFilterTag = '__all__';
+    }
+
     const tagCounts = {};
     tags.forEach(t => tagCounts[t] = 0);
     items.forEach(item => {
-        if (item.tag && tagCounts.hasOwnProperty(item.tag)) {
-            tagCounts[item.tag]++;
-        }
+        if (item.tag && tagCounts.hasOwnProperty(item.tag)) tagCounts[item.tag]++;
     });
-    
     const untaggedCount = items.filter(i => !i.tag).length;
-    
-    let totalCount = 0;
-    selectedTags.forEach(tag => {
-        if (tag === '__untagged__') {
-            totalCount += untaggedCount;
-        } else if (tagCounts[tag] !== undefined) {
-            totalCount += tagCounts[tag];
-        }
+
+    // Compute main tag counts (includes all subtag items)
+    const mainTagCounts = {};
+    getMainTags().forEach(mainTag => {
+        mainTagCounts[mainTag] = tagCounts[mainTag] || 0;
+        getSubtags(mainTag).forEach(sub => { mainTagCounts[mainTag] += (tagCounts[sub] || 0); });
     });
-    
+
+    // Total visible count
+    const totalCount = items.filter(item => {
+        if (!item.tag) return selectedTags.includes('__untagged__');
+        return selectedTags.includes(item.tag);
+    }).length;
+
+    // Only main tags in primary tabs (subtags show as chips)
+    const primaryTabs = selectedTags.filter(t => t !== '__untagged__' && tags.includes(t) && !isSubtag(t));
+    const showAll = primaryTabs.length + (selectedTags.includes('__untagged__') ? 1 : 0) > 1;
+
+    // Current active main tag (for subtag chip row)
+    const activeMainTag = getActiveMainTag();
+    const isMainTabActive = (tag) => activeFilterTag === tag ||
+        (isSubtag(activeFilterTag) && tagParents[activeFilterTag] === tag);
+
     let html = '';
-    
+
     if (selectedTags.length === 0) {
         html = '<span style="color: #64748b; font-size: 0.85rem;">No tags selected. Go to Manage Tags to enable filters.</span>';
     } else {
-        if (selectedTags.length > 1) {
+        if (showAll) {
             html += `<div class="tab ${activeFilterTag === '__all__' ? 'active' : ''}" onclick="setActiveFilterTag('__all__')">
                 All <span class="count">${totalCount}</span>
             </div>`;
         }
-        
-        selectedTags.forEach(tag => {
-            if (tag === '__untagged__') {
-                html += `<div class="tab ${activeFilterTag === '__untagged__' ? 'active' : ''}" onclick="setActiveFilterTag('__untagged__')">
-                    Untagged <span class="count">${untaggedCount}</span>
-                </div>`;
-            } else if (tags.includes(tag)) {
-                html += `<div class="tab ${activeFilterTag === tag ? 'active' : ''}" onclick="setActiveFilterTag('${escapeHtml(tag)}')">
-                    ${escapeHtml(tag)} <span class="count">${tagCounts[tag]}</span>
-                </div>`;
-            }
+
+        primaryTabs.forEach(tag => {
+            const allSubs = getSubtags(tag);
+            const visibleSubs = allSubs.filter(s => selectedTags.includes(s));
+            const hasSubtags = visibleSubs.length > 0;
+            const subCountBadge = hasSubtags
+                ? `<span class="tab-subtag-badge">${visibleSubs.length} sub</span>`
+                : '';
+            html += `<div class="tab ${isMainTabActive(tag) ? 'active' : ''} ${hasSubtags ? 'tab-has-subtags' : ''}" onclick="setActiveFilterTag('${escapeHtml(tag)}')">
+                ${escapeHtml(tag)}${hasSubtags ? ' <span class="subtag-indicator">▾</span>' : ''} <span class="count">${mainTagCounts[tag] || 0}</span>${subCountBadge}
+            </div>`;
         });
+
+        if (selectedTags.includes('__untagged__')) {
+            html += `<div class="tab ${activeFilterTag === '__untagged__' ? 'active' : ''}" onclick="setActiveFilterTag('__untagged__')">
+                Untagged <span class="count">${untaggedCount}</span>
+            </div>`;
+        }
+
+        // Subtag chip row (shown when a main tag with subtags is currently active)
+        if (activeMainTag) {
+            const visibleSubtags = getSubtags(activeMainTag).filter(s => selectedTags.includes(s));
+            if (visibleSubtags.length > 0) {
+                const mainHasOwnItems = (tagCounts[activeMainTag] || 0) > 0;
+                html += `<div class="subtag-row">`;
+                // Only show "All <MainTag>" chip if the main tag itself has direct items
+                if (mainHasOwnItems) {
+                    html += `<div class="subtag-chip ${activeFilterTag === activeMainTag ? 'active' : ''}" onclick="setActiveFilterTag('${escapeHtml(activeMainTag)}')">
+                        All ${escapeHtml(activeMainTag)} <span class="count">${mainTagCounts[activeMainTag] || 0}</span>
+                    </div>`;
+                }
+                visibleSubtags.forEach(sub => {
+                    html += `<div class="subtag-chip ${activeFilterTag === sub ? 'active' : ''}" onclick="setActiveFilterTag('${escapeHtml(sub)}')">
+                        ${escapeHtml(sub)} <span class="count">${tagCounts[sub] || 0}</span>
+                    </div>`;
+                });
+                html += `</div>`;
+            }
+        }
     }
-    
+
     container.innerHTML = html;
 }
 
 // Set active filter tag
 function setActiveFilterTag(tag) {
+    // If clicking a main tag that has no direct items, jump straight to first visible subtag
+    if (tag !== '__all__' && tag !== '__untagged__' && !isSubtag(tag)) {
+        const ownCount = items.filter(i => i.tag === tag).length;
+        if (ownCount === 0) {
+            const visibleSubs = getSubtags(tag).filter(s => selectedTags.includes(s));
+            if (visibleSubs.length > 0) {
+                tag = visibleSubs[0];
+            }
+        }
+    }
     activeFilterTag = tag;
     renderTabs();
     render();
@@ -100,20 +250,27 @@ function setActiveFilterTag(tag) {
 // Get filtered items based on selected checkboxes and active tab
 function getFilteredItems() {
     if (selectedTags.length === 0) return [];
-    
+
     if (activeFilterTag === '__all__') {
         return items.filter(item => {
-            if (!item.tag) {
-                return selectedTags.includes('__untagged__');
-            }
+            if (!item.tag) return selectedTags.includes('__untagged__');
             return selectedTags.includes(item.tag);
         });
     }
-    
+
     if (activeFilterTag === '__untagged__') {
         return items.filter(i => !i.tag);
     }
-    
+
+    // If filtering by a main tag that has subtags, include all subtag items too
+    if (!isSubtag(activeFilterTag)) {
+        const subtags = getSubtags(activeFilterTag);
+        if (subtags.length > 0) {
+            return items.filter(i => i.tag === activeFilterTag || (i.tag && tagParents[i.tag] === activeFilterTag));
+        }
+    }
+
+    // Specific subtag or leaf main tag
     return items.filter(i => i.tag === activeFilterTag);
 }
 
@@ -180,15 +337,18 @@ function render() {
         );
     }
 
-    // When "All" is selected, group items by tag continuously
+    // When "All" is selected, group items by tag (main tags first, then their subtags)
     if (activeFilterTag === '__all__' && !searchQuery) {
         const grouped = [];
-        const tagOrder = [...tags.filter(t => selectedTags.includes(t))];
-        if (selectedTags.includes('__untagged__')) tagOrder.push(null);
-        tagOrder.forEach(tag => {
-            const tagItems = filteredItems.filter(i => (i.tag || null) === tag);
-            grouped.push(...tagItems);
+        getMainTags().filter(t => selectedTags.includes(t)).forEach(mainTag => {
+            grouped.push(...filteredItems.filter(i => i.tag === mainTag));
+            getSubtags(mainTag).filter(s => selectedTags.includes(s)).forEach(sub => {
+                grouped.push(...filteredItems.filter(i => i.tag === sub));
+            });
         });
+        if (selectedTags.includes('__untagged__')) {
+            grouped.push(...filteredItems.filter(i => !i.tag));
+        }
         filteredItems = grouped;
     }
     
@@ -212,7 +372,15 @@ function render() {
         card.draggable = true;
         card.dataset.index = originalIndex;
         card.style.animationDelay = `${index * 0.03}s`;
-        const tagHtml = (showTagBadge && item.tag) ? `<span class="tag-badge">${escapeHtml(item.tag)}</span>` : '';
+        let tagHtml = '';
+        if (showTagBadge && item.tag) {
+            if (isSubtag(item.tag)) {
+                tagHtml = `<span class="tag-badge"><span class="tag-badge-parent">${escapeHtml(tagParents[item.tag])}</span> › ${escapeHtml(item.tag)}</span>`;
+            } else {
+                tagHtml = `<span class="tag-badge">${escapeHtml(item.tag)}</span>`;
+            }
+        }
+        const isLong = item.content.length > 180 || item.content.split('\n').length > 3;
         card.innerHTML = `
             <div class="item-card-top">
                 <div class="item-card-meta">
@@ -225,7 +393,10 @@ function render() {
                     <button class="btn btn-delete" onclick="deleteItem('${item.id}')">🗑️ Delete</button>
                 </div>
             </div>
-            <div class="item-card-content">${escapeHtml(item.content)}</div>
+            <div class="item-card-content${isLong ? ' is-long' : ''}" id="content-${item.id}">${escapeHtml(item.content)}</div>
+            ${isLong ? `<button class="content-expand-btn" id="expand-${item.id}" onclick="toggleContentExpand('${item.id}')">
+                <span class="expand-label">Show more</span> <span class="expand-chars">${item.content.length} chars</span> <span class="expand-arrow">▾</span>
+            </button>` : ''}
         `;
         
         // Drag events
@@ -240,6 +411,27 @@ function render() {
     });
     
     renderTabs();
+}
+
+// Toggle Add Content panel
+function toggleAddContent() {
+    const wrap = document.getElementById('inputCardWrap');
+    const btn  = document.getElementById('addContentToggle');
+    const isOpen = wrap.classList.contains('open');
+    if (isOpen) {
+        closeAddContent();
+    } else {
+        wrap.classList.add('open');
+        btn.classList.add('open');
+        setTimeout(() => {
+            document.getElementById('labelInput').focus();
+        }, 200);
+    }
+}
+
+function closeAddContent() {
+    document.getElementById('inputCardWrap').classList.remove('open');
+    document.getElementById('addContentToggle').classList.remove('open');
 }
 
 // Escape HTML
@@ -287,7 +479,7 @@ function checkDuplicateLabel(label, tag, excludeId = null) {
 function addItem() {
     const label = document.getElementById('labelInput').value.trim();
     const content = document.getElementById('contentInput').value.trim();
-    const tag = document.getElementById('tagInput').value;
+    const tag = document.getElementById('tagInputCustom').dataset.value || '';
     
     if (!label) {
         showToast('Please enter a label!', 'error');
@@ -321,9 +513,20 @@ function addItem() {
     
     document.getElementById('labelInput').value = '';
     document.getElementById('contentInput').value = '';
-    document.getElementById('tagInput').value = '';
+    setCustomSelectValue('tagInputCustom', '');
     
+    // Collapse the input panel after successful add
+    closeAddContent();
     showToast('Item added successfully!');
+}
+
+function toggleContentExpand(id) {
+    const content = document.getElementById(`content-${id}`);
+    const btn = document.getElementById(`expand-${id}`);
+    if (!content || !btn) return;
+    const expanded = content.classList.toggle('expanded');
+    btn.querySelector('.expand-label').textContent = expanded ? 'Show less' : 'Show more';
+    btn.querySelector('.expand-arrow').style.transform = expanded ? 'rotate(180deg)' : '';
 }
 
 // Copy item
@@ -350,8 +553,8 @@ function editItem(id) {
     if (item) {
         editingId = id;
         document.getElementById('editLabel').value = item.label;
-        document.getElementById('editTag').value = item.tag || '';
         document.getElementById('editContent').value = item.content;
+        setCustomSelectValue('editTagCustom', item.tag || '');
         document.getElementById('editModal').classList.add('show');
     }
 }
@@ -360,7 +563,7 @@ function editItem(id) {
 function saveEdit() {
     const label = document.getElementById('editLabel').value.trim();
     const content = document.getElementById('editContent').value.trim();
-    const tag = document.getElementById('editTag').value;
+    const tag = document.getElementById('editTagCustom').dataset.value || '';
     
     if (!label || !content) {
         showToast('Please fill all fields!', 'error');
@@ -396,14 +599,62 @@ function closeModal() {
     editingId = null;
 }
 
+// ===== Custom Confirm Dialog =====
+let _confirmCb = null;
+
+function showConfirm(title, message, confirmLabel, onConfirm) {
+    document.getElementById('confirmModalTitle').textContent = title;
+    document.getElementById('confirmModalMsg').textContent = message;
+    document.getElementById('confirmModalBtn').textContent = confirmLabel || 'Confirm';
+    _confirmCb = onConfirm;
+    document.getElementById('confirmModal').classList.add('show');
+}
+
+function _runConfirm() {
+    const cb = _confirmCb;
+    closeConfirmModal();
+    if (cb) cb();
+}
+
+function closeConfirmModal() {
+    document.getElementById('confirmModal').classList.remove('show');
+    _confirmCb = null;
+}
+
+// ===== Custom Prompt Dialog =====
+let _promptCb = null;
+
+function showPrompt(title, message, defaultValue, onConfirm) {
+    document.getElementById('promptModalTitle').textContent = title;
+    document.getElementById('promptModalMsg').textContent = message;
+    const input = document.getElementById('promptModalInput');
+    input.value = defaultValue || '';
+    _promptCb = onConfirm;
+    document.getElementById('promptModal').classList.add('show');
+    setTimeout(() => { input.focus(); input.select(); }, 80);
+}
+
+function _runPrompt() {
+    const val = document.getElementById('promptModalInput').value.trim();
+    if (!val) return;
+    const cb = _promptCb;
+    closePromptModal();
+    if (cb) cb(val);
+}
+
+function closePromptModal() {
+    document.getElementById('promptModal').classList.remove('show');
+    _promptCb = null;
+}
+
 // Delete item
 function deleteItem(id) {
-    if (confirm('Delete this item?')) {
+    showConfirm('Delete Item', 'Are you sure you want to delete this item? This cannot be undone.', 'Delete', () => {
         items = items.filter(i => i.id !== id);
         save();
         render();
         showToast('Item deleted!');
-    }
+    });
 }
 
 // Export: open modal with tag selection
@@ -430,38 +681,65 @@ function renderExportTagList() {
         if (item.tag && tagCounts.hasOwnProperty(item.tag)) tagCounts[item.tag]++;
     });
     const untaggedCount = items.filter(i => !i.tag).length;
+    let idx = 0;
 
-    tags.forEach((tag, idx) => {
+    // map of mainTag → its checkbox el, for cascade
+    const mainCbMap = {};
+
+    function makeCheckboxRow(tagVal, labelText, indent, mainCb) {
         const div = document.createElement('div');
         div.className = 'tag-item';
+        if (indent) div.style.paddingLeft = '32px';
         const left = document.createElement('div');
         left.className = 'tag-item-left';
         left.style.gap = '10px';
-
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.className = 'export-tag-cb';
-        cb.value = tag;
+        cb.value = tagVal;
         cb.checked = true;
         cb.id = `exp-tag-${idx}`;
         cb.style.cssText = 'width:16px;height:16px;cursor:pointer;accent-color:#7b2ff7;flex-shrink:0;';
+
+        if (!indent) {
+            // Main tag: cascade to subtags
+            mainCbMap[tagVal] = cb;
+            cb.addEventListener('change', () => {
+                container.querySelectorAll(`.export-sub-cb[data-parent="${tagVal}"]`).forEach(s => s.checked = cb.checked);
+            });
+        } else {
+            // Subtag: mark for parent lookup
+            cb.classList.add('export-sub-cb');
+            cb.dataset.parent = mainCb ? mainCb.value : '';
+            cb.addEventListener('change', () => {
+                // If any subtag gets checked, ensure parent is checked too
+                const parentCb = mainCbMap[cb.dataset.parent];
+                if (parentCb && cb.checked) parentCb.checked = true;
+            });
+        }
 
         const lbl = document.createElement('label');
         lbl.htmlFor = `exp-tag-${idx}`;
         lbl.style.cssText = 'cursor:pointer;display:flex;gap:8px;align-items:center;';
         const nameSpan = document.createElement('span');
         nameSpan.className = 'tag-item-name';
-        nameSpan.textContent = tag;
+        nameSpan.textContent = labelText;
         const countSpan = document.createElement('span');
         countSpan.className = 'tag-item-count';
-        countSpan.textContent = `${tagCounts[tag]} items`;
+        countSpan.textContent = `${tagCounts[tagVal] || 0} items`;
         lbl.appendChild(nameSpan);
         lbl.appendChild(countSpan);
-
         left.appendChild(cb);
         left.appendChild(lbl);
         div.appendChild(left);
         container.appendChild(div);
+        idx++;
+        return cb;
+    }
+
+    getMainTags().forEach(mainTag => {
+        const mainCb = makeCheckboxRow(mainTag, mainTag, false, null);
+        getSubtags(mainTag).forEach(sub => makeCheckboxRow(sub, '↳ ' + sub, true, mainCb));
     });
 
     if (untaggedCount > 0) {
@@ -470,7 +748,6 @@ function renderExportTagList() {
         const left = document.createElement('div');
         left.className = 'tag-item-left';
         left.style.gap = '10px';
-
         const cb = document.createElement('input');
         cb.type = 'checkbox';
         cb.className = 'export-tag-cb';
@@ -478,7 +755,6 @@ function renderExportTagList() {
         cb.checked = true;
         cb.id = 'exp-tag-untagged';
         cb.style.cssText = 'width:16px;height:16px;cursor:pointer;accent-color:#7b2ff7;flex-shrink:0;';
-
         const lbl = document.createElement('label');
         lbl.htmlFor = 'exp-tag-untagged';
         lbl.style.cssText = 'cursor:pointer;display:flex;gap:8px;align-items:center;';
@@ -490,7 +766,6 @@ function renderExportTagList() {
         countSpan.textContent = `${untaggedCount} items`;
         lbl.appendChild(nameSpan);
         lbl.appendChild(countSpan);
-
         left.appendChild(cb);
         left.appendChild(lbl);
         div.appendChild(left);
@@ -518,9 +793,19 @@ function performExport() {
         return;
     }
 
+    // Expand chosen: for every selected subtag, also include its parent tag's items
+    const effectiveChosen = new Set(chosen.filter(v => v !== '__untagged__'));
+    chosen.forEach(tag => {
+        if (tag !== '__untagged__' && tagParents[tag]) {
+            effectiveChosen.add(tagParents[tag]); // always include parent items
+        }
+    });
+
+    const includeUntagged = chosen.includes('__untagged__');
+
     const exportItems = items.filter(item => {
-        if (!item.tag) return chosen.includes('__untagged__');
-        return chosen.includes(item.tag);
+        if (!item.tag) return includeUntagged;
+        return effectiveChosen.has(item.tag);
     });
 
     if (exportItems.length === 0) {
@@ -528,7 +813,27 @@ function performExport() {
         return;
     }
 
-    const blob = new Blob([JSON.stringify(exportItems, null, 2)], {type: 'application/json'});
+    // Build the full tag list to export (all effectiveChosen tags + their parents)
+    const exportTagSet = new Set(effectiveChosen);
+    effectiveChosen.forEach(tag => {
+        if (tagParents[tag]) exportTagSet.add(tagParents[tag]);
+    });
+    const exportTagList = [...exportTagSet];
+
+    // Build tagParents only for exported tags
+    const exportedTagParents = {};
+    exportTagList.forEach(tag => {
+        if (tagParents[tag]) exportedTagParents[tag] = tagParents[tag];
+    });
+
+    const exportData = {
+        version: 2,
+        tags: exportTagList,          // explicit tag list so import can create parent tags
+        tagParents: exportedTagParents,
+        items: exportItems
+    };
+
+    const blob = new Blob([JSON.stringify(exportData, null, 2)], {type: 'application/json'});
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -543,8 +848,7 @@ function performExport() {
             .filter(v => v !== '__untagged__')
             .map(v => v.replace(/[^a-zA-Z0-9-_]/g, '_'))
             .join('-');
-        const untaggedPart = chosen.includes('__untagged__')
-            ? (tagPart ? '-untagged' : 'untagged') : '';
+        const untaggedPart = includeUntagged ? (tagPart ? '-untagged' : 'untagged') : '';
         filename = `copy-paste-backup-${tagPart}${untaggedPart}.json`;
     }
 
@@ -561,33 +865,68 @@ function performExport() {
 function importData(e) {
     const file = e.target.files[0];
     if (!file) return;
-    
+
     const reader = new FileReader();
     reader.onload = function(evt) {
         try {
-            const imported = JSON.parse(evt.target.result);
-            if (Array.isArray(imported)) {
-                const newItems = imported.filter(imp => 
-                    !items.some(i => i.content === imp.content)
-                );
-                
-                const importedTags = [...new Set(newItems.map(i => i.tag).filter(t => t && !tags.includes(t)))];
-                if (importedTags.length > 0) {
-                    tags = [...tags, ...importedTags];
-                    saveTags();
-                    populateTagDropdowns();
-                }
-                
-                items = [...newItems.map(i => ({
-                    id: Date.now().toString() + Math.random(),
-                    label: i.label || 'Imported',
-                    content: i.content,
-                    tag: i.tag || null
-                })), ...items];
-                save();
-                render();
-                showToast(`Imported ${newItems.length} items!`);
+            const parsed = JSON.parse(evt.target.result);
+
+            // Support v1 (plain array) and v2 (object with items + tagParents)
+            let importedItems, importedTagParents = {}, importedTagList = [];
+            if (Array.isArray(parsed)) {
+                importedItems = parsed; // v1 format
+            } else if (parsed.version === 2 && Array.isArray(parsed.items)) {
+                importedItems = parsed.items; // v2 format
+                importedTagParents = parsed.tagParents || {};
+                importedTagList = parsed.tags || [];
+            } else {
+                showToast('Invalid file format!', 'error');
+                return;
             }
+
+            const newItems = importedItems.filter(imp =>
+                !items.some(i => i.content === imp.content)
+            );
+
+            // First add all explicitly exported tags (includes parent tags even if they have no items)
+            const allImportedTagNames = new Set(importedTagList);
+            // Also add tags from item.tag fields
+            newItems.forEach(i => { if (i.tag) allImportedTagNames.add(i.tag); });
+            // Also add parent tags referenced in tagParents
+            Object.values(importedTagParents).forEach(p => allImportedTagNames.add(p));
+
+            const newTagNames = [...allImportedTagNames].filter(t => !tags.includes(t));
+            if (newTagNames.length > 0) {
+                tags = [...tags, ...newTagNames];
+                saveTags();
+            }
+
+            // Merge tagParents — now parent tags are guaranteed to exist
+            let parentsChanged = false;
+            Object.entries(importedTagParents).forEach(([sub, parent]) => {
+                if (tags.includes(sub) && tags.includes(parent) && !tagParents[sub]) {
+                    tagParents[sub] = parent;
+                    parentsChanged = true;
+                }
+            });
+            if (parentsChanged) saveTagParents();
+
+            // Auto-select newly imported tags
+            newTagNames.forEach(t => {
+                if (!selectedTags.includes(t)) selectedTags.push(t);
+            });
+            if (newTagNames.length > 0) saveSelectedTags();
+
+            items = [...newItems.map(i => ({
+                id: Date.now().toString() + Math.random(),
+                label: i.label || 'Imported',
+                content: i.content,
+                tag: i.tag || null
+            })), ...items];
+            save();
+            populateTagDropdowns();
+            render();
+            showToast(`Imported ${newItems.length} items!`);
         } catch (err) {
             showToast('Invalid file!', 'error');
         }
@@ -643,54 +982,142 @@ function openTagsModal() {
 function closeTagsModal() {
     document.getElementById('tagsModal').classList.remove('show');
     document.getElementById('newTagInput').value = '';
+    addingSubtagTo = null;
 }
 
 function renderTagList() {
     const container = document.getElementById('tagList');
     const untaggedContainer = document.getElementById('untaggedOption');
-    
+
     const tagCounts = {};
     tags.forEach(t => tagCounts[t] = 0);
     items.forEach(item => {
-        if (item.tag && tagCounts.hasOwnProperty(item.tag)) {
-            tagCounts[item.tag]++;
-        }
+        if (item.tag && tagCounts.hasOwnProperty(item.tag)) tagCounts[item.tag]++;
     });
-    
     const untaggedCount = items.filter(i => !i.tag).length;
-    
+    const mainTags = getMainTags();
+
     if (tags.length === 0) {
         container.innerHTML = '<p style="color:#64748b; text-align:center; padding:20px;">No tags created yet.</p>';
     } else {
-        container.innerHTML = tags.map(tag => {
-            const isChecked = selectedTags.includes(tag);
-            return `
-            <div class="tag-item">
-                <div class="tag-item-left">
-                    <span class="tag-item-name">${escapeHtml(tag)}</span>
-                    <span class="tag-item-count">${tagCounts[tag]} items</span>
-                </div>
-                <div class="tag-item-actions">
-                    <button class="tag-item-btn ${isChecked ? 'show active' : 'show'}" onclick="toggleTagFilter('${escapeHtml(tag)}')">
-                        ${isChecked ? '👁️ Show' : '👁️‍🗨️ Hide'}
-                    </button>
-                    <button class="tag-item-btn rename" onclick="renameTag('${escapeHtml(tag)}')" title="Rename">✏️ R</button>
-                    <button class="tag-item-btn delete" onclick="deleteTag('${escapeHtml(tag)}')" title="Delete">🗑️ D</button>
-                </div>
-            </div>
-        `}).join('');
+        let html = '';
+
+        // Sort: visible (selected) main tags first, hidden after
+        const sortedMainTags = [
+            ...mainTags.filter(t => selectedTags.includes(t)),
+            ...mainTags.filter(t => !selectedTags.includes(t))
+        ];
+
+        sortedMainTags.forEach(mainTag => {
+            const subtags = getSubtags(mainTag);
+            const isChecked = selectedTags.includes(mainTag);
+            const mainCount = (tagCounts[mainTag] || 0) + subtags.reduce((s, t) => s + (tagCounts[t] || 0), 0);
+            const safeName = escapeHtml(mainTag);
+
+            html += `<div class="tag-tree-node">
+                <div class="tag-tree-main" draggable="true" data-tag="${safeName}" data-type="main">
+                    <div class="tag-item-left">
+                        <span class="tag-drag-handle" title="Drag to reorder">⠿</span>
+                        <span class="tag-item-name">${safeName}</span>
+                        <span class="tag-item-count">${mainCount} items</span>
+                        ${subtags.length > 0 ? `<span class="subtag-count-badge">${subtags.length} subtag${subtags.length !== 1 ? 's' : ''}</span>` : ''}
+                    </div>
+                    <div class="tag-item-actions">
+                        <button class="tag-item-btn add-subtag-btn" onclick="startAddSubtag('${safeName}')" title="Add subtag">＋ Sub</button>
+                        <button class="tag-item-btn ${isChecked ? 'show active' : 'show'}" onclick="toggleTagFilter('${safeName}')" title="${isChecked ? 'Visible' : 'Hidden'}">
+                            ${isChecked ? '👁️ Visible' : '🚫 Hidden'}
+                        </button>
+                        <button class="tag-item-btn rename" onclick="renameTag('${safeName}')" title="Rename">✏️</button>
+                        <button class="tag-item-btn delete" onclick="deleteTag('${safeName}')" title="Delete">🗑️</button>
+                    </div>
+                </div>`;
+
+            // Sort subtags: visible first, hidden after
+            const sortedSubs = [
+                ...subtags.filter(s => selectedTags.includes(s)),
+                ...subtags.filter(s => !selectedTags.includes(s))
+            ];
+
+            sortedSubs.forEach(sub => {
+                const isSubChecked = selectedTags.includes(sub);
+                const safeSub = escapeHtml(sub);
+                html += `
+                <div class="tag-tree-subtag" draggable="true" data-tag="${safeSub}" data-type="subtag" data-parent="${safeName}">
+                    <div class="tag-item-left">
+                        <span class="tag-drag-handle" title="Drag to move under another tag">⠿</span>
+                        <span class="tag-tree-connector">└─</span>
+                        <div class="tag-item-name-group">
+                            <span class="tag-item-name">${safeSub}</span>
+                            <span class="subtag-parent-label">under: ${safeName}</span>
+                        </div>
+                        <span class="tag-item-count">${tagCounts[sub] || 0} items</span>
+                    </div>
+                    <div class="tag-item-actions">
+                        <button class="tag-item-btn promote-btn" onclick="promoteSubtag('${safeSub}')" title="Promote to main tag">↑ Root</button>
+                        <button class="tag-item-btn ${isSubChecked ? 'show active' : 'show'}" onclick="toggleTagFilter('${safeSub}')" title="${isSubChecked ? 'Visible' : 'Hidden'}">
+                            ${isSubChecked ? '👁️ Visible' : '🚫 Hidden'}
+                        </button>
+                        <button class="tag-item-btn rename" onclick="renameTag('${safeSub}')" title="Rename">✏️</button>
+                        <button class="tag-item-btn delete" onclick="deleteTag('${safeSub}')" title="Delete">🗑️</button>
+                    </div>
+                </div>`;
+            });
+
+            if (addingSubtagTo === mainTag) {
+                html += `
+                <div class="tag-tree-add-subtag-row">
+                    <span class="tag-tree-connector">└─</span>
+                    <input type="text" id="subtagNameInput" class="subtag-name-input" placeholder="New subtag name..." />
+                    <button class="tag-item-btn add-subtag-btn" onclick="addSubtag()">Add</button>
+                    <button class="tag-item-btn" onclick="cancelAddSubtag()" style="background:rgba(239,68,68,0.12);color:#fca5a5;">✕</button>
+                </div>`;
+            }
+
+            html += `</div>`;
+        });
+
+        container.innerHTML = html;
+
+        // Attach tree drag-and-drop events
+        container.querySelectorAll('.tag-tree-main, .tag-tree-subtag').forEach(el => {
+            el.addEventListener('dragstart', handleTreeDragStart);
+            el.addEventListener('dragend', handleTreeDragEnd);
+            el.addEventListener('dragover', handleTreeDragOver);
+            el.addEventListener('dragenter', handleTreeDragEnter);
+            el.addEventListener('dragleave', handleTreeDragLeave);
+            el.addEventListener('drop', handleTreeDrop);
+        });
+
+        // Touch DnD: attach ONLY to drag handles so buttons still work and scroll isn't hijacked
+        container.querySelectorAll('.tag-tree-main .tag-drag-handle, .tag-tree-subtag .tag-drag-handle').forEach(handle => {
+            handle.addEventListener('touchstart', handleTreeTouchStart, { passive: false });
+            handle.addEventListener('touchmove',  handleTreeTouchMove,  { passive: false });
+            handle.addEventListener('touchend',   handleTreeTouchEnd,   { passive: true });
+        });
+
+        // Focus the subtag input if currently adding
+        if (addingSubtagTo) {
+            setTimeout(() => {
+                const input = document.getElementById('subtagNameInput');
+                if (input) {
+                    input.focus();
+                    input.addEventListener('keypress', e => { if (e.key === 'Enter') addSubtag(); });
+                    input.addEventListener('keydown', e => { if (e.key === 'Escape') cancelAddSubtag(); });
+                }
+            }, 50);
+        }
     }
-    
+
     const isUntaggedChecked = selectedTags.includes('__untagged__');
     untaggedContainer.innerHTML = `
-        <div class="tag-item">
+        <div class="tag-tree-main" style="cursor:default;">
             <div class="tag-item-left">
                 <span class="tag-item-name">Untagged</span>
                 <span class="tag-item-count">${untaggedCount} items</span>
             </div>
             <div class="tag-item-actions">
-                <button class="tag-item-btn ${isUntaggedChecked ? 'show active' : 'show'}" onclick="toggleTagFilter('__untagged__')">
-                    ${isUntaggedChecked ? '👁️ Show' : '👁️‍🗨️ Hide'}
+                <button class="tag-item-btn ${isUntaggedChecked ? 'show active' : 'show'}" onclick="toggleTagFilter('__untagged__')" title="${isUntaggedChecked ? 'Visible' : 'Hidden'}">
+                    ${isUntaggedChecked ? '👁️ Visible' : '🚫 Hidden'}
                 </button>
             </div>
         </div>
@@ -699,14 +1126,42 @@ function renderTagList() {
 
 // Toggle tag visibility in filter
 function toggleTagFilter(tag) {
+    const subtags = getSubtags(tag);
+    const parent = tagParents[tag]; // non-null if tag is a subtag
     const index = selectedTags.indexOf(tag);
+
     if (index > -1) {
+        // Hiding this tag
         selectedTags.splice(index, 1);
-        if (activeFilterTag === tag) {
+        // If it's a main tag, also hide all its subtags
+        subtags.forEach(sub => {
+            const subIdx = selectedTags.indexOf(sub);
+            if (subIdx > -1) selectedTags.splice(subIdx, 1);
+        });
+        if (activeFilterTag === tag || subtags.includes(activeFilterTag)) {
             activeFilterTag = '__all__';
         }
+        // If it's a subtag, check if any sibling subtag is still visible;
+        // if none are, also hide the parent main tag
+        if (parent) {
+            const siblingsStillVisible = getSubtags(parent).some(s => selectedTags.includes(s));
+            if (!siblingsStillVisible) {
+                const parentIdx = selectedTags.indexOf(parent);
+                if (parentIdx > -1) selectedTags.splice(parentIdx, 1);
+                if (activeFilterTag === parent) activeFilterTag = '__all__';
+            }
+        }
     } else {
+        // Showing this tag
         selectedTags.push(tag);
+        // If it's a main tag, also show all its subtags
+        subtags.forEach(sub => {
+            if (!selectedTags.includes(sub)) selectedTags.push(sub);
+        });
+        // If it's a subtag, auto-enable the parent main tag too
+        if (parent && !selectedTags.includes(parent)) {
+            selectedTags.push(parent);
+        }
     }
     saveSelectedTags();
     renderTagList();
@@ -742,64 +1197,489 @@ function addTag() {
 }
 
 function deleteTag(tagName) {
-    if (!confirm(`Delete tag "${tagName}"? Items with this tag will become untagged.`)) return;
-    
-    items.forEach(item => {
-        if (item.tag === tagName) {
-            item.tag = null;
-        }
-    });
+    const subtags = getSubtags(tagName);
+    let confirmMsg;
+    if (subtags.length > 0) {
+        confirmMsg = `This tag has ${subtags.length} subtag(s): ${subtags.join(', ')}.\nSubtags will be promoted to main tags. Items with this tag will become untagged.`;
+    } else {
+        confirmMsg = 'Items with this tag will become untagged.';
+    }
+    showConfirm(`Delete "${tagName}"`, confirmMsg, 'Delete', () => {
+
+    // Promote subtags to main tags (remove their parent entry)
+    subtags.forEach(sub => delete tagParents[sub]);
+    // If this tag itself is a subtag, remove its parent reference
+    if (tagParents[tagName]) delete tagParents[tagName];
+    saveTagParents();
+
+    // Untag all items with this tag
+    items.forEach(item => { if (item.tag === tagName) item.tag = null; });
     save();
-    
+
     tags = tags.filter(t => t !== tagName);
     saveTags();
-    
-    if (activeFilterTag === tagName) {
-        activeFilterTag = '__all__';
-    }
-    
+
+    selectedTags = selectedTags.filter(t => t !== tagName);
+    saveSelectedTags();
+
+    if (activeFilterTag === tagName) activeFilterTag = '__all__';
+
     populateTagDropdowns();
     renderTagList();
     render();
     showToast('Tag deleted!');
+    });
 }
 
 function renameTag(oldName) {
-    const newName = prompt(`Rename tag "${oldName}" to:`, oldName);
-    if (!newName || !newName.trim()) return;
-    const trimmed = newName.trim();
-    
-    if (trimmed === oldName) return;
-    
-    if (tags.includes(trimmed)) {
-        showToast('A tag with that name already exists!', 'error');
-        return;
-    }
-    
-    // Update tag list
-    const idx = tags.indexOf(oldName);
-    if (idx > -1) tags[idx] = trimmed;
-    saveTags();
-    
-    // Update all items with this tag
-    items.forEach(item => {
-        if (item.tag === oldName) item.tag = trimmed;
+    showPrompt('Rename Tag', `Rename "${oldName}" to:`, oldName, (trimmed) => {
+        if (trimmed === oldName) return;
+
+        if (tags.includes(trimmed)) {
+            showToast('A tag with that name already exists!', 'error');
+            return;
+        }
+
+        // Update tag list
+        const idx = tags.indexOf(oldName);
+        if (idx > -1) tags[idx] = trimmed;
+        saveTags();
+
+        // Update tagParents: if oldName was a subtag, move its entry
+        if (tagParents[oldName]) {
+            tagParents[trimmed] = tagParents[oldName];
+            delete tagParents[oldName];
+        }
+        // Update any subtags that had oldName as their parent
+        Object.keys(tagParents).forEach(sub => {
+            if (tagParents[sub] === oldName) tagParents[sub] = trimmed;
+        });
+        saveTagParents();
+
+        // Update all items with this tag
+        items.forEach(item => { if (item.tag === oldName) item.tag = trimmed; });
+        save();
+
+        // Update selected tags
+        const selIdx = selectedTags.indexOf(oldName);
+        if (selIdx > -1) selectedTags[selIdx] = trimmed;
+        saveSelectedTags();
+
+        // Update active filter
+        if (activeFilterTag === oldName) activeFilterTag = trimmed;
+
+        populateTagDropdowns();
+        renderTagList();
+        renderTabs();
+        render();
+        showToast(`Tag renamed to "${trimmed}"!`);
     });
-    save();
-    
-    // Update selected tags
-    const selIdx = selectedTags.indexOf(oldName);
-    if (selIdx > -1) selectedTags[selIdx] = trimmed;
-    saveSelectedTags();
-    
-    // Update active filter
-    if (activeFilterTag === oldName) activeFilterTag = trimmed;
-    
+}
+
+// ========== Subtag Management ==========
+function startAddSubtag(parentTag) {
+    addingSubtagTo = parentTag;
+    renderTagList();
+}
+
+function cancelAddSubtag() {
+    addingSubtagTo = null;
+    renderTagList();
+}
+
+function addSubtag() {
+    const input = document.getElementById('subtagNameInput');
+    if (!input) return;
+    const name = input.value.trim();
+    if (!name) { showToast('Enter a subtag name!', 'error'); return; }
+    if (tags.includes(name)) { showToast('Tag already exists!', 'error'); return; }
+
+    // Insert subtag right after the last existing subtag of this parent
+    let insertIdx = tags.indexOf(addingSubtagTo);
+    const existingSubs = getSubtags(addingSubtagTo);
+    if (existingSubs.length > 0) {
+        insertIdx = tags.indexOf(existingSubs[existingSubs.length - 1]);
+    }
+    tags.splice(insertIdx + 1, 0, name);
+    tagParents[name] = addingSubtagTo;
+
+    // Auto-select if parent is selected
+    if (selectedTags.includes(addingSubtagTo) && !selectedTags.includes(name)) {
+        selectedTags.push(name);
+        saveSelectedTags();
+    }
+
+    saveTagParents();
+    saveTags();
     populateTagDropdowns();
+
+    const parentName = addingSubtagTo;
+    addingSubtagTo = null;
     renderTagList();
     renderTabs();
-    render();
-    showToast(`Tag renamed to "${trimmed}"!`);
+    showToast(`Subtag "${name}" added under "${parentName}"!`);
+}
+
+// ========== Tree Drag & Drop ==========
+// ========== Touch Drag-and-Drop for Tag Tree ==========
+let touchDragEl = null;
+let touchGhost = null;
+let touchLastTarget = null;
+
+function handleTreeTouchStart(e) {
+    e.preventDefault(); // prevent scroll while dragging via handle
+    const touch = e.touches[0];
+    // `this` is the drag handle — climb up to the row
+    const row = this.closest('.tag-tree-main, .tag-tree-subtag');
+    if (!row) return;
+    touchDragEl = row;
+    treeDragType = row.dataset.type;
+    treeDragTag  = row.dataset.tag;
+    row.classList.add('tree-dragging');
+
+    // Create a ghost clone that follows the finger
+    const rect = row.getBoundingClientRect();
+    touchGhost = row.cloneNode(true);
+    touchGhost.style.cssText = `
+        position: fixed;
+        left: ${rect.left}px;
+        top: ${rect.top}px;
+        width: ${rect.width}px;
+        opacity: 0.75;
+        pointer-events: none;
+        z-index: 9999;
+        border-radius: 8px;
+        box-shadow: 0 8px 32px rgba(0,0,0,0.45);
+        transform: scale(1.03);
+        transition: none;
+    `;
+    document.body.appendChild(touchGhost);
+}
+
+function handleTreeTouchMove(e) {
+    if (!touchDragEl) return;
+    e.preventDefault();
+    const touch = e.touches[0];
+
+    // Move ghost
+    const rect = touchDragEl.getBoundingClientRect();
+    touchGhost.style.left = (touch.clientX - rect.width / 2) + 'px';
+    touchGhost.style.top  = (touch.clientY - 20) + 'px';
+
+    // Find element under finger (hide ghost first so it doesn't block)
+    touchGhost.style.display = 'none';
+    const elUnder = document.elementFromPoint(touch.clientX, touch.clientY);
+    touchGhost.style.display = '';
+
+    const targetEl = elUnder ? elUnder.closest('.tag-tree-main, .tag-tree-subtag') : null;
+
+    // Clear previous highlights
+    if (touchLastTarget && touchLastTarget !== targetEl) {
+        touchLastTarget.classList.remove('tree-drop-target', 'tree-drop-nest');
+    }
+
+    if (targetEl && targetEl !== touchDragEl) {
+        const targetTag  = targetEl.dataset.tag;
+        const targetType = targetEl.dataset.type;
+        const relY = (touch.clientY - targetEl.getBoundingClientRect().top) / targetEl.getBoundingClientRect().height;
+
+        if (treeDragType === 'main' && targetType === 'main' && targetTag !== treeDragTag) {
+            if (relY > 0.55) {
+                targetEl.classList.add('tree-drop-nest');
+                targetEl.classList.remove('tree-drop-target');
+            } else {
+                targetEl.classList.add('tree-drop-target');
+                targetEl.classList.remove('tree-drop-nest');
+            }
+        } else if (treeDragType === 'subtag') {
+            targetEl.classList.add('tree-drop-target');
+            targetEl.classList.remove('tree-drop-nest');
+        }
+    }
+    touchLastTarget = targetEl;
+}
+
+function handleTreeTouchEnd(e) {
+    if (!touchDragEl) return;
+
+    // Clean up ghost and dragging state
+    if (touchGhost) { touchGhost.remove(); touchGhost = null; }
+    touchDragEl.classList.remove('tree-dragging');
+    document.querySelectorAll('.tag-tree-main, .tag-tree-subtag').forEach(el => {
+        el.classList.remove('tree-drop-target', 'tree-drop-nest');
+    });
+
+    const touch = e.changedTouches[0];
+    const elUnder = document.elementFromPoint(touch.clientX, touch.clientY);
+    const targetEl = elUnder ? elUnder.closest('.tag-tree-main, .tag-tree-subtag') : null;
+
+    if (targetEl && targetEl !== touchDragEl) {
+        const targetTag  = targetEl.dataset.tag;
+        const targetType = targetEl.dataset.type;
+        const relY = (touch.clientY - targetEl.getBoundingClientRect().top) / targetEl.getBoundingClientRect().height;
+
+        // Reuse exact same drop logic as mouse drop
+        const fakeEvent = { clientY: touch.clientY };
+        fakeEvent.preventDefault = () => {};
+        fakeEvent.stopPropagation = () => {};
+
+        if (treeDragType === 'subtag') {
+            if (targetType === 'main' && targetTag !== tagParents[treeDragTag]) {
+                tagParents[treeDragTag] = targetTag;
+                saveTagParents();
+                if (selectedTags.includes(targetTag) && !selectedTags.includes(treeDragTag)) {
+                    selectedTags.push(treeDragTag);
+                    saveSelectedTags();
+                }
+                renderTagList(); renderTabs();
+                showToast(`Moved "${treeDragTag}" under "${targetTag}"!`);
+            } else if (targetType === 'subtag' && targetTag !== treeDragTag) {
+                if (tagParents[treeDragTag] === tagParents[targetTag]) {
+                    const dragIdx = tags.indexOf(treeDragTag);
+                    tags.splice(dragIdx, 1);
+                    const newIdx = tags.indexOf(targetTag);
+                    tags.splice(relY < 0.5 ? newIdx : newIdx + 1, 0, treeDragTag);
+                    saveTags(); renderTagList();
+                    showToast('Subtag order updated!');
+                } else {
+                    tagParents[treeDragTag] = tagParents[targetTag];
+                    saveTagParents(); renderTagList(); renderTabs();
+                    showToast(`Moved "${treeDragTag}" under "${tagParents[treeDragTag]}"!`);
+                }
+            }
+        } else if (treeDragType === 'main' && targetType === 'main' && targetTag !== treeDragTag) {
+            if (relY > 0.55 && !isSubtag(targetTag)) {
+                const ownSubs = getSubtags(treeDragTag);
+                ownSubs.forEach(sub => delete tagParents[sub]);
+                tags = tags.filter(t => t !== treeDragTag);
+                tagParents[treeDragTag] = targetTag;
+                const targetSubs = getSubtags(targetTag);
+                const insertAfter = targetSubs.length > 0 ? targetSubs[targetSubs.length - 1] : targetTag;
+                const insertIdx = tags.indexOf(insertAfter);
+                tags.splice(insertIdx + 1, 0, treeDragTag);
+                saveTagParents(); saveTags();
+                const msg = ownSubs.length > 0
+                    ? `"${treeDragTag}" nested under "${targetTag}" (its ${ownSubs.length} subtag(s) promoted to root)`
+                    : `"${treeDragTag}" nested under "${targetTag}"!`;
+                renderTagList(); renderTabs(); render();
+                showToast(msg);
+            } else {
+                const subgroup = getSubtags(treeDragTag);
+                const group = [treeDragTag, ...subgroup];
+                tags = tags.filter(t => !group.includes(t));
+                const newIdx = tags.indexOf(targetTag);
+                if (newIdx !== -1) tags.splice(newIdx, 0, ...group);
+                else tags.push(...group);
+                saveTags(); renderTagList(); renderTabs(); render();
+                showToast('Tag order updated!');
+            }
+        }
+    }
+
+    touchDragEl = null;
+    touchLastTarget = null;
+    treeDragType = null;
+    treeDragTag  = null;
+}
+
+function handleTreeDragStart(e) {
+    treeDragType = this.dataset.type;
+    treeDragTag = this.dataset.tag;
+    this.classList.add('tree-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.stopPropagation();
+}
+
+function handleTreeDragEnd(e) {
+    this.classList.remove('tree-dragging');
+    document.querySelectorAll('.tag-tree-main, .tag-tree-subtag').forEach(el => {
+        el.classList.remove('tree-drop-target', 'tree-drop-nest');
+    });
+    treeDragType = null;
+    treeDragTag = null;
+}
+
+function handleTreeDragOver(e) {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    e.stopPropagation();
+    // For main→main: show nest vs reorder indicator based on drop position
+    if (treeDragType === 'main' && this.dataset.type === 'main' && this.dataset.tag !== treeDragTag) {
+        const rect = this.getBoundingClientRect();
+        const relY = (e.clientY - rect.top) / rect.height;
+        if (relY > 0.55) {
+            this.classList.add('tree-drop-nest');
+            this.classList.remove('tree-drop-target');
+        } else {
+            this.classList.add('tree-drop-target');
+            this.classList.remove('tree-drop-nest');
+        }
+    }
+}
+
+function handleTreeDragEnter(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!treeDragTag || !treeDragType) return;
+    const targetTag = this.dataset.tag;
+    const targetType = this.dataset.type;
+    if (treeDragType === 'subtag' && targetType === 'main' && targetTag !== tagParents[treeDragTag]) {
+        this.classList.add('tree-drop-target');
+    } else if (treeDragType === 'subtag' && targetType === 'subtag' && targetTag !== treeDragTag) {
+        this.classList.add('tree-drop-target');
+    } else if (treeDragType === 'main' && targetType === 'main' && targetTag !== treeDragTag) {
+        this.classList.add('tree-drop-target'); // updated to nest/reorder in dragOver
+    }
+}
+
+function handleTreeDragLeave(e) {
+    e.stopPropagation();
+    this.classList.remove('tree-drop-target', 'tree-drop-nest');
+}
+
+function handleTreeDrop(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    this.classList.remove('tree-drop-target', 'tree-drop-nest');
+    if (!treeDragTag || !treeDragType) return;
+
+    const targetTag = this.dataset.tag;
+    const targetType = this.dataset.type;
+    const rect = this.getBoundingClientRect();
+    const relY = (e.clientY - rect.top) / rect.height;
+
+    if (treeDragType === 'subtag') {
+        if (targetType === 'main' && targetTag !== tagParents[treeDragTag]) {
+            // Reparent subtag to a different main tag
+            tagParents[treeDragTag] = targetTag;
+            saveTagParents();
+            if (selectedTags.includes(targetTag) && !selectedTags.includes(treeDragTag)) {
+                selectedTags.push(treeDragTag);
+                saveSelectedTags();
+            }
+            renderTagList();
+            renderTabs();
+            showToast(`Moved "${treeDragTag}" under "${targetTag}"!`);
+        } else if (targetType === 'subtag' && targetTag !== treeDragTag) {
+            if (tagParents[treeDragTag] === tagParents[targetTag]) {
+                // Reorder within same parent
+                const dragIdx = tags.indexOf(treeDragTag);
+                tags.splice(dragIdx, 1);
+                const newIdx = tags.indexOf(targetTag);
+                tags.splice(relY < 0.5 ? newIdx : newIdx + 1, 0, treeDragTag);
+                saveTags();
+                renderTagList();
+                showToast('Subtag order updated!');
+            } else {
+                // Move to the target subtag's parent
+                const newParent = tagParents[targetTag];
+                tagParents[treeDragTag] = newParent;
+                saveTagParents();
+                renderTagList();
+                renderTabs();
+                showToast(`Moved "${treeDragTag}" under "${newParent}"!`);
+            }
+        }
+    } else if (treeDragType === 'main') {
+        if (targetType === 'main' && targetTag !== treeDragTag) {
+            if (relY > 0.55 && !isSubtag(targetTag)) {
+                // Nest dragged main tag as a subtag of target
+                // First, promote any existing subtags of the dragged tag to root
+                const ownSubs = getSubtags(treeDragTag);
+                ownSubs.forEach(sub => delete tagParents[sub]);
+                // Remove dragged tag from flat list, then re-insert after target's last subtag
+                tags = tags.filter(t => t !== treeDragTag);
+                tagParents[treeDragTag] = targetTag;
+                const targetSubs = getSubtags(targetTag);
+                const insertAfter = targetSubs.length > 0 ? targetSubs[targetSubs.length - 1] : targetTag;
+                const insertIdx = tags.indexOf(insertAfter);
+                tags.splice(insertIdx + 1, 0, treeDragTag);
+                saveTagParents();
+                saveTags();
+                const msg = ownSubs.length > 0
+                    ? `"${treeDragTag}" nested under "${targetTag}" (its ${ownSubs.length} subtag(s) promoted to root)`
+                    : `"${treeDragTag}" nested under "${targetTag}"!`;
+                renderTagList();
+                renderTabs();
+                render();
+                showToast(msg);
+            } else {
+                // Reorder: move dragged tag group before target
+                const subgroup = getSubtags(treeDragTag);
+                const group = [treeDragTag, ...subgroup];
+                tags = tags.filter(t => !group.includes(t));
+                const newIdx = tags.indexOf(targetTag);
+                if (newIdx !== -1) tags.splice(newIdx, 0, ...group);
+                else tags.push(...group);
+                saveTags();
+                renderTagList();
+                renderTabs();
+                render();
+                showToast('Tag order updated!');
+            }
+        }
+    }
+}
+
+// Promote a subtag back to a root main tag
+function promoteSubtag(tagName) {
+    const parent = tagParents[tagName];
+    if (!parent) return;
+    delete tagParents[tagName];
+    saveTagParents();
+    renderTagList();
+    renderTabs();
+    populateTagDropdowns();
+    showToast(`"${tagName}" promoted to main tag!`);
+}
+
+function promoteAllSubtagsGlobal() {
+    const allSubs = Object.keys(tagParents);
+    if (allSubs.length === 0) {
+        showToast('No subtags to promote!', 'error');
+        return;
+    }
+    // Build grouped breakdown: "ParentTag → sub1, sub2"
+    const byParent = {};
+    allSubs.forEach(sub => {
+        const p = tagParents[sub];
+        if (!byParent[p]) byParent[p] = [];
+        byParent[p].push(sub);
+    });
+    const breakdown = Object.entries(byParent)
+        .map(([parent, subs]) => `${parent}  →  ${subs.join(', ')}`)
+        .join('\n');
+    showConfirm(
+        'Promote All to Root',
+        `Promote all ${allSubs.length} subtag(s) to main tags?\n\n${breakdown}`,
+        'Promote All',
+        () => {
+            allSubs.forEach(sub => delete tagParents[sub]);
+            saveTagParents();
+            renderTagList();
+            renderTabs();
+            populateTagDropdowns();
+            showToast(`${allSubs.length} subtag(s) promoted to main tags!`);
+        }
+    );
+}
+
+function promoteAllSubtags(parentTag) {
+    const subtags = getSubtags(parentTag);
+    if (subtags.length === 0) return;
+    showConfirm(
+        `Promote All Subtags`,
+        `Promote all ${subtags.length} subtag(s) of "${parentTag}" to main tags?\n\n${subtags.join(', ')}`,
+        'Promote All',
+        () => {
+            subtags.forEach(sub => delete tagParents[sub]);
+            saveTagParents();
+            renderTagList();
+            renderTabs();
+            populateTagDropdowns();
+            showToast(`${subtags.length} subtag(s) promoted to main tags!`);
+        }
+    );
 }
 
 // Handle Enter key in new tag input
@@ -1330,7 +2210,7 @@ async function handleSharedLink() {
             populateTagDropdowns();
         }
         
-        if (confirm(`Import shared snippet "${shared.label}"?`)) {
+        showConfirm('Import Snippet', `Import "${shared.label}" into your collection?`, 'Import', () => {
             items.unshift({
                 id: Date.now().toString(),
                 label: shared.label,
@@ -1340,8 +2220,8 @@ async function handleSharedLink() {
             save();
             render();
             showToast('Shared snippet imported!');
-        }
-        
+        });
+
         // Clean up URL
         window.history.replaceState(null, '', window.location.pathname);
     } catch (e) {
@@ -1357,6 +2237,14 @@ document.getElementById('shareModal').addEventListener('click', e => {
 
 document.getElementById('qrScannerModal').addEventListener('click', e => {
     if (e.target.classList.contains('modal-overlay')) closeQRScanner();
+});
+
+document.getElementById('confirmModal').addEventListener('click', e => {
+    if (e.target.classList.contains('modal-overlay')) closeConfirmModal();
+});
+
+document.getElementById('promptModal').addEventListener('click', e => {
+    if (e.target.classList.contains('modal-overlay')) closePromptModal();
 });
 
 // ========== QR Scanner ==========
@@ -1549,7 +2437,7 @@ async function processScannedQR(url) {
             populateTagDropdowns();
         }
         
-        if (confirm(`Import snippet "${shared.label}"?`)) {
+        showConfirm('Import Snippet', `Import "${shared.label}" into your collection?`, 'Import', () => {
             items.unshift({
                 id: Date.now().toString(),
                 label: shared.label,
@@ -1559,7 +2447,7 @@ async function processScannedQR(url) {
             save();
             render();
             showToast('Snippet imported from QR!');
-        }
+        });
     } catch (err) {
         showToast('Could not decode QR data!', 'error');
     }
