@@ -381,6 +381,38 @@ function render() {
             }
         }
         const isLong = item.content.length > 180 || item.content.split('\n').length > 3;
+        const contentLines = item.content.split('\n');
+        const nonEmptyLineCount = contentLines.filter(l => l.trim() !== '').length;
+        const isMultiLine = nonEmptyLineCount > 1;
+
+        let contentHtml;
+        if (isMultiLine) {
+            let lineNum = 0;
+            const rows = contentLines.map((line, i) => {
+                if (line.trim() === '') return '';
+                lineNum++;
+                return `<div class="line-copy-row">
+                    <span class="line-copy-num">${lineNum}</span>
+                    <span class="line-copy-text">${escapeHtml(line)}</span>
+                    <button class="line-copy-btn" onclick="copyLine('${item.id}', ${i})" title="Copy this line" aria-label="Copy line ${lineNum}">
+                        <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                    </button>
+                </div>`;
+            }).join('');
+            const linesLong = nonEmptyLineCount > 4;
+            contentHtml = `
+                <div class="item-card-lines${linesLong ? ' is-long' : ''}" id="content-${item.id}">${rows}</div>
+                ${linesLong ? `<button class="content-expand-btn" id="expand-${item.id}" onclick="toggleContentExpand('${item.id}')">
+                    <span class="expand-label">Show more</span> <span class="expand-chars">${nonEmptyLineCount} lines</span> <span class="expand-arrow">▾</span>
+                </button>` : ''}`;
+        } else {
+            contentHtml = `
+                <div class="item-card-content${isLong ? ' is-long' : ''}" id="content-${item.id}">${escapeHtml(item.content)}</div>
+                ${isLong ? `<button class="content-expand-btn" id="expand-${item.id}" onclick="toggleContentExpand('${item.id}')">
+                    <span class="expand-label">Show more</span> <span class="expand-chars">${item.content.length} chars</span> <span class="expand-arrow">▾</span>
+                </button>` : ''}`;
+        }
+
         card.innerHTML = `
             <div class="item-card-top">
                 <div class="item-card-meta">
@@ -393,10 +425,7 @@ function render() {
                     <button class="btn btn-delete" onclick="deleteItem('${item.id}')">🗑️ Delete</button>
                 </div>
             </div>
-            <div class="item-card-content${isLong ? ' is-long' : ''}" id="content-${item.id}">${escapeHtml(item.content)}</div>
-            ${isLong ? `<button class="content-expand-btn" id="expand-${item.id}" onclick="toggleContentExpand('${item.id}')">
-                <span class="expand-label">Show more</span> <span class="expand-chars">${item.content.length} chars</span> <span class="expand-arrow">▾</span>
-            </button>` : ''}
+            ${contentHtml}
         `;
         
         // Drag events
@@ -545,6 +574,24 @@ function copyItem(id) {
             showToast('Copied to clipboard!');
         });
     }
+}
+
+// Copy a single line from a multi-line item
+function copyLine(id, index) {
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+    const text = item.content.split('\n')[index];
+    if (text === undefined) return;
+    const done = () => showToast('Line copied to clipboard!');
+    navigator.clipboard.writeText(text).then(done).catch(() => {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        document.body.appendChild(ta);
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+        done();
+    });
 }
 
 // Edit item

@@ -555,6 +555,108 @@ textarea.input-field {
     opacity: 0.7;
 }
 
+/* Per-line copy — content shown directly as copyable lines */
+.item-card-lines {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    padding: 8px;
+    background: rgba(15, 15, 35, 0.4);
+    border-radius: var(--radius-sm);
+    border: 1px solid rgba(255,255,255,0.03);
+}
+
+.item-card-lines.is-long {
+    max-height: 168px;
+    overflow: hidden;
+    border-radius: var(--radius-sm) var(--radius-sm) 0 0;
+    border-bottom-color: transparent;
+    -webkit-mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+    mask-image: linear-gradient(to bottom, #000 70%, transparent 100%);
+}
+
+.item-card-lines.is-long.expanded {
+    max-height: none;
+    overflow: visible;
+    -webkit-mask-image: none;
+    mask-image: none;
+}
+
+.line-copy-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 8px;
+    background: rgba(255, 255, 255, 0.03);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: var(--radius-sm);
+    transition: border-color 0.15s, background 0.15s;
+}
+
+.line-copy-row:hover {
+    background: rgba(139, 92, 246, 0.08);
+    border-color: rgba(139, 92, 246, 0.2);
+}
+
+.line-copy-num {
+    flex-shrink: 0;
+    min-width: 18px;
+    height: 18px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(139, 92, 246, 0.15);
+    color: #a78bfa;
+    border-radius: 6px;
+    font-size: 0.62rem;
+    font-weight: 700;
+}
+
+.line-copy-text {
+    flex: 1;
+    min-width: 0;
+    color: var(--text-secondary);
+    font-size: 0.8rem;
+    line-height: 1.4;
+    font-family: 'SF Mono', 'Fira Code', 'Cascadia Code', monospace;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.line-copy-btn {
+    flex-shrink: 0;
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    background: rgba(139, 92, 246, 0.1);
+    color: #a78bfa;
+    border: none;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: var(--transition);
+    box-shadow: 0 2px 6px rgba(139, 92, 246, 0.18), inset 0 0 8px rgba(139, 92, 246, 0.12);
+}
+
+.line-copy-btn:hover {
+    background: rgba(139, 92, 246, 0.18);
+    color: #c4b5fd;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.4), inset 0 0 12px rgba(139, 92, 246, 0.25);
+}
+
+.line-copy-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 6px rgba(139, 92, 246, 0.25), inset 0 0 10px rgba(139, 92, 246, 0.2);
+}
+
+.line-copy-btn svg {
+    display: block;
+}
+
 .item-card-actions {
     display: flex;
     gap: 6px;
@@ -2264,6 +2366,43 @@ textarea.input-field {
 [data-theme="light"] .content-expand-btn:hover {
     background: rgba(139, 92, 246, 0.09);
     color: #6d28d9;
+}
+
+[data-theme="light"] .item-card-lines {
+    background: rgba(255, 255, 255, 0.7);
+    border-color: rgba(0,0,0,0.06);
+}
+
+[data-theme="light"] .line-copy-row {
+    background: rgba(0, 0, 0, 0.02);
+    border-color: rgba(0, 0, 0, 0.04);
+}
+
+[data-theme="light"] .line-copy-row:hover {
+    background: rgba(139, 92, 246, 0.07);
+    border-color: rgba(139, 92, 246, 0.2);
+}
+
+[data-theme="light"] .line-copy-num {
+    background: rgba(139, 92, 246, 0.12);
+    color: #6d28d9;
+}
+
+[data-theme="light"] .line-copy-text {
+    color: #334155;
+}
+
+[data-theme="light"] .line-copy-btn {
+    background: rgba(139, 92, 246, 0.08);
+    color: #6d28d9;
+    border: none;
+    box-shadow: 0 2px 6px rgba(139, 92, 246, 0.15), inset 0 0 8px rgba(139, 92, 246, 0.1);
+}
+
+[data-theme="light"] .line-copy-btn:hover {
+    background: rgba(139, 92, 246, 0.16);
+    color: #5b21b6;
+    box-shadow: 0 4px 14px rgba(139, 92, 246, 0.3), inset 0 0 12px rgba(139, 92, 246, 0.2);
 }
 
 [data-theme="light"] .topbar-actions button {
